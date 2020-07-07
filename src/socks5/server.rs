@@ -74,7 +74,7 @@ impl Socks5Server<'_> {
         let len = self.socket.read_u8().await? as usize;
 
         let mut buffer: Vec<u8> = vec![0u8; len + 2];
-        self.socket.read_buf(&mut buffer).await?;
+        self.socket.read_exact(&mut buffer).await?;
 
         let domain_name = String::from_utf8(buffer[..len].to_vec())?;
         let port: [u8; 2] = buffer[len..].try_into()?;
