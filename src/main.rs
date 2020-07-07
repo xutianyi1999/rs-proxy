@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate anyhow;
 
+use std::env;
+use std::net::SocketAddr;
+
 use anyhow::Result;
 use tokio::net::{TcpListener, TcpStream};
 
@@ -8,7 +11,11 @@ mod socks5;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let mut listener = TcpListener::bind("127.0.0.1:19998").await?;
+  let addr = env::args().nth(1).unwrap_or("127.0.0.1:19998".to_string());
+  let addr = addr.parse::<SocketAddr>()?;
+
+  println!("bind: {:?}", addr);
+  let mut listener = TcpListener::bind(addr).await?;
 
   loop {
     let (socket, _) = listener.accept().await?;
