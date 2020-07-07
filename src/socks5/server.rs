@@ -14,7 +14,7 @@ const NO_AUTH: u8 = 0x00;
 const CMD_CONNECT: u8 = 0x01;
 
 const IPV4: u8 = 0x01;
-const IPV6: u8 = 0x02;
+const IPV6: u8 = 0x04;
 const DOMAIN_NAME: u8 = 0x03;
 
 impl Socks5Server<'_> {
@@ -26,7 +26,7 @@ impl Socks5Server<'_> {
       return Err(anyhow!("INVALID PROTOCOL VERSION"));
     }
 
-    let mut discard = Vec::with_capacity(buffer[1] as usize);
+    let mut discard = vec![0u8; buffer[1] as usize];
     self.socket.read_exact(&mut discard).await?;
     drop(discard);
 
@@ -57,7 +57,7 @@ impl Socks5Server<'_> {
         self.socket.read_exact(&mut buffer).await?;
 
         let addr: [u8; 4] = buffer[..4].try_into()?;
-        let port: [u8; 2] = buffer[..4].try_into()?;
+        let port: [u8; 2] = buffer[4..].try_into()?;
 
         Ok(Address::IP(IpAddr::from(addr), u16::from_be_bytes(port)))
       }
@@ -73,7 +73,7 @@ impl Socks5Server<'_> {
       DOMAIN_NAME => {
         let len = self.socket.read_u8().await? as usize;
 
-        let mut buffer: Vec<u8> = Vec::with_capacity(len + 2);
+        let mut buffer: Vec<u8> = vec![0u8; len + 2];
         self.socket.read_buf(&mut buffer).await?;
 
         let domain_name = String::from_utf8(buffer[..len].to_vec())?;
