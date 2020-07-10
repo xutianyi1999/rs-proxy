@@ -1,39 +1,23 @@
 #[macro_use]
 extern crate anyhow;
+extern crate nanoid;
 
+use std::any::Any;
 use std::env;
 use std::net::SocketAddr;
 
 use anyhow::Result;
+use nanoid::nanoid;
 use tokio::net::{TcpListener, TcpStream};
 
-mod socks5;
+mod server;
+mod client;
+mod message;
+mod commons;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-  let addr = env::args().nth(1).unwrap_or("127.0.0.1:19998".to_string());
-  let addr = addr.parse::<SocketAddr>()?;
+fn main() {
+  let id = nanoid!(4);
 
-  println!("bind: {:?}", addr);
-  let mut listener = TcpListener::bind(addr).await?;
-
-  loop {
-    let (socket, _) = listener.accept().await?;
-
-    tokio::spawn(async move {
-      let result = handler(socket).await;
-
-      if let Err(err) = result {
-        eprintln!("connection error: {:?}", err);
-      }
-    });
-  }
+  println!("{:?}", id)
 }
 
-async fn handler(mut socket: TcpStream) -> Result<()> {
-  let mut socks5_server = socks5::server(&mut socket);
-  socks5_server.initial_request().await?;
-  let dst_address = socks5_server.command_request().await?;
-  socks5_server.reply_request(dst_address).await?;
-  Ok(())
-}
