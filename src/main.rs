@@ -1,23 +1,21 @@
 #[macro_use]
-extern crate anyhow;
 extern crate nanoid;
 
-use std::any::Any;
-use std::env;
-use std::net::SocketAddr;
+use std::sync::Arc;
 
-use anyhow::Result;
-use nanoid::nanoid;
-use tokio::net::{TcpListener, TcpStream};
+use dashmap::DashMap;
+use tokio::io::Result;
+use tokio::net::TcpStream;
+use tokio::prelude::*;
+use tokio::sync::Mutex;
 
-mod server;
 mod client;
-mod message;
 mod commons;
+mod message;
 
-fn main() {
-  let id = nanoid!(4);
-
-  println!("{:?}", id)
+#[tokio::main]
+async fn main() -> Result<()> {
+  Ok(())
 }
+
 

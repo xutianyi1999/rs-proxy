@@ -1,9 +1,7 @@
 use std::convert::TryInto;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
-use anyhow::Result;
-use bytes::{BufMut, BytesMut};
-use tokio::io::ErrorKind::*;
+use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
@@ -22,7 +20,7 @@ pub async fn initial_request(socket: &mut TcpStream) -> Result<()> {
   socket.read_exact(&mut buffer).await?;
 
   if buffer[0] != SOCKS5_VERSION {
-    return Err(anyhow!("INVALID PROTOCOL VERSION"));
+    return Err(Error::new(ErrorKind::Other, "INVALID PROTOCOL VERSION"));
   }
 
   let mut discard = vec![0u8; buffer[1] as usize];
@@ -38,16 +36,16 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
   socket.read_exact(&mut buffer).await?;
 
   if buffer[0] != SOCKS5_VERSION {
-    return Err(anyhow!("INVALID PROTOCOL VERSION"));
+    return Err(Error::new(ErrorKind::Other, "INVALID PROTOCOL VERSION"));
   }
 
   if buffer[1] != CMD_CONNECT {
     write_err_reply(socket, 0x07).await?;
-    return Err(anyhow!("UNSUPPORTED COMMAND"));
+    return Err(Error::new(ErrorKind::Other, "UNSUPPORTED COMMAND"));
   }
 
   if buffer[2] != 0x00 {
-    return Err(anyhow!("INVALID RESERVED DATA"));
+    return Err(Error::new(ErrorKind::Other, "INVALID RESERVED DATA"));
   }
 
   let address = match buffer[3] {
@@ -55,8 +53,8 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer = [0u8; 6];
       socket.read_exact(&mut buffer).await?;
 
-      let addr: [u8; 4] = buffer[..4].try_into()?;
-      let port: [u8; 2] = buffer[4..].try_into()?;
+      let addr: [u8; 4] = buffer[..4].try_into().unwrap();
+      let port: [u8; 2] = buffer[4..].try_into().unwrap();
 
       Address::IP(IpAddr::from(addr), u16::from_be_bytes(port))
     }
@@ -64,8 +62,8 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer = [0u8; 18];
       socket.read_exact(&mut buffer).await?;
 
-      let addr: [u8; 16] = buffer[..16].try_into()?;
-      let port: [u8; 2] = buffer[16..].try_into()?;
+      let addr: [u8; 16] = buffer[..16].try_into().unwrap();
+      let port: [u8; 2] = buffer[16..].try_into().unwrap();
 
       Address::IP(IpAddr::from(addr), u16::from_be_bytes(port))
     }
@@ -75,14 +73,14 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer: Vec<u8> = vec![0u8; len + 2];
       socket.read_exact(&mut buffer).await?;
 
-      let domain_name = String::from_utf8(Vec::from(&buffer[..len]))?;
-      let port: [u8; 2] = buffer[len..].try_into()?;
+      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).unwrap();
+      let port: [u8; 2] = buffer[len..].try_into().unwrap();
 
       Address::DOMAIN(domain_name, u16::from_be_bytes(port))
     }
     _ => {
       write_err_reply(socket, 0x08).await?;
-      return Err(anyhow!("INVALID ADDRESS TYPE"));
+      return Err(Error::new(ErrorKind::Other, "INVALID ADDRESS TYPE"));
     }
   };
 
