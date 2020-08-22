@@ -21,31 +21,36 @@ pub async fn bind(host: &str) -> Result<()> {
 }
 
 async fn process(mut socket: TcpStream, get_client_mux_channel: fn() -> Option<ClientMuxChannel>) -> Result<()> {
-  // let address = socks5_decode(&mut socket).await?;
+  let address = socks5_decode(&mut socket).await?;
+  let (mut rx, tx) = socket.into_split();
+
   let client_mux_channel = match get_client_mux_channel() {
     Some(channel) => channel,
-    None => return Err(Error::new(ErrorKind::Other, "abc"))
+    None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
   };
 
-  let channel_id = create_channel_id();
-  let socket = Arc::new(Mutex::new(socket));
-
-  client_mux_channel.register(channel_id, socket.clone());
+  let channel_id = client_mux_channel.register(address, tx).await?;
 
   loop {
     let mut buff = BytesMut::new();
 
-    match socket.lock().await.read(&mut buff).await {
+    match rx.read_buf(&mut buff).await {
       Ok(size) => if size == 0 {
-        // call close, return
+        client_mux_channel.remove(channel_id);
+        return Ok(());
       },
       Err(e) => {
-        // return Err(e)
+        client_mux_channel.remove(channel_id);
+        return Err(e);
       }
     }
-    client_mux_channel.write_to_remote(&buff).await;
+    client_mux_channel.write_to_remote(&buff).await?;
     buff.clear();
   }
 }
 
-// async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {}
+async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
+  socks5::initial_request(socket).await?;
+  let addr = socks5::command_request(socket).await?;
+  Ok(addr)
+}
