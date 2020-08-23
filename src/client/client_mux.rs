@@ -1,4 +1,4 @@
-use std::borrow::BorrowMut;
+use std::borrow::{Borrow, BorrowMut};
 use std::net::IpAddr;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -46,7 +46,7 @@ impl ClientMuxChannel {
         }
         _ => return Err(Error::new(ErrorKind::Other, "Message error"))
       }
-    }
+    };
   }
 
   pub async fn write_to_remote(&self, buff: &BytesMut) -> Result<()> {

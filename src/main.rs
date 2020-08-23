@@ -1,4 +1,6 @@
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate nanoid;
 
 use std::sync::Arc;
@@ -10,6 +12,7 @@ use tokio::prelude::*;
 use tokio::sync::Mutex;
 
 mod client;
+mod server;
 mod commons;
 mod message;
 

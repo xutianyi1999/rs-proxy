@@ -1,4 +1,4 @@
-use std::borrow::Borrow;
+use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
@@ -17,23 +17,22 @@ mod client_mux;
 mod client_proxy;
 mod socks5;
 
-type AMConnectionPool = Arc<Mutex<ConnectionPool>>;
+lazy_static! {
+    pub static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
+}
 
-pub async fn start(host_list: Vec<String>) -> Result<()> {
-  let connection_pool = Arc::new(Mutex::new(ConnectionPool::new()));
-
+pub async fn start(bind_addr: &str, host_list: Vec<String>) -> Result<()> {
   for host in host_list {
-    let cp = connection_pool.clone();
     tokio::spawn(async move {
-      connect(host, &cp).await;
+      connect(host).await;
     });
   }
 
+  client_proxy::bind(bind_addr).await;
   Ok(())
 }
 
-async fn connect(host: String,
-                 connection_pool: &AMConnectionPool) -> Result<()> {
+async fn connect(host: String) -> Result<()> {
   let channel_id = commons::create_channel_id();
 
   loop {
@@ -46,12 +45,12 @@ async fn connect(host: String,
     };
 
     let cmc = Arc::new(ClientMuxChannel::new(tx));
-    connection_pool.lock().unwrap().put(channel_id.clone(), cmc.clone());
+    CONNECTION_POOL.lock().unwrap().put(channel_id.clone(), cmc.clone());
 
     if let Err(e) = cmc.recv_process(rx).await {
       eprintln!("{:?}", e);
     }
-    connection_pool.lock().unwrap().remove(&channel_id);
+    CONNECTION_POOL.lock().unwrap().remove(&channel_id);
   }
 }
 
