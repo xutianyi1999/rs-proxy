@@ -7,24 +7,29 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::Mutex;
 
+use crate::client::{AMConnectionPool, socks5};
 use crate::client::client_mux::ClientMuxChannel;
-use crate::client::socks5;
 use crate::commons::{Address, create_channel_id};
 
-pub async fn bind(host: &str) -> Result<()> {
+pub async fn bind(host: &str, connection_pool: AMConnectionPool) -> Result<()> {
   let mut tcp_listener = TcpListener::bind(host).await?;
 
-  while let Ok((socket, address)) = tcp_listener.accept().await {
-    tokio::spawn(async move {});
+  while let Ok((socket, addr)) = tcp_listener.accept().await {
+    let cn = connection_pool.clone();
+    tokio::spawn(async move {
+      process(socket, cn).await;
+    });
   };
   Ok(())
 }
 
-async fn process(mut socket: TcpStream, get_client_mux_channel: fn() -> Option<ClientMuxChannel>) -> Result<()> {
+async fn process(mut socket: TcpStream, connection_pool: AMConnectionPool) -> Result<()> {
   let address = socks5_decode(&mut socket).await?;
   let (mut rx, tx) = socket.into_split();
 
-  let client_mux_channel = match get_client_mux_channel() {
+  let res = connection_pool.lock().unwrap().get();
+
+  let client_mux_channel = match res {
     Some(channel) => channel,
     None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
   };
