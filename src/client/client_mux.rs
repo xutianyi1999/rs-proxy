@@ -1,5 +1,6 @@
 use std::borrow::{Borrow, BorrowMut};
-use std::net::IpAddr;
+use std::convert::TryInto;
+use std::net::{IpAddr, Shutdown};
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -29,10 +30,8 @@ impl ClientMuxChannel {
   }
 
   pub async fn recv_process(&self, mut rx: OwnedReadHalf) -> Result<()> {
-    loop {
-      let len = rx.read_u32().await?;
-      let mut msg = BytesMut::with_capacity(len as usize);
-      rx.read_exact(&mut msg).await?;
+    let res = loop {
+      let msg = message::read_msg(&mut rx).await?;
 
       match message::decode(msg)? {
         Msg::DATA(channel_id, data) => {
@@ -44,9 +43,11 @@ impl ClientMuxChannel {
         Msg::DISCONNECT(channel_id) => {
           self.db.remove(&channel_id);
         }
-        _ => return Err(Error::new(ErrorKind::Other, "Message error"))
+        _ => break Err(Error::new(ErrorKind::Other, "Message error"))
       }
     };
+    self.db.clear();
+    res
   }
 
   pub async fn write_to_remote(&self, buff: &BytesMut) -> Result<()> {
@@ -56,16 +57,17 @@ impl ClientMuxChannel {
 
   pub async fn register(&self, addr: Address, writer: OwnedWriteHalf) -> Result<String> {
     let channel_id = commons::create_channel_id();
-    let msg = message::encode_connect_msg(addr, &channel_id);
+    let msg = message::encode(Msg::CONNECT(channel_id.clone(), addr));
     self.tx.lock().await.write_all(&msg).await?;
     self.db.insert(channel_id.clone(), writer);
     Ok(channel_id)
   }
 
   pub async fn remove(&self, channel_id: String) -> Result<()> {
-    let msg = message::encode_disconnect_msg(&channel_id);
-    self.tx.lock().await.write_all(&msg).await?;
-    self.db.remove(&channel_id);
+    if let Some(_) = self.db.remove(&channel_id) {
+      let msg = message::encode(Msg::DISCONNECT(channel_id));
+      self.tx.lock().await.write_all(&msg).await?;
+    }
     Ok(())
   }
 }
