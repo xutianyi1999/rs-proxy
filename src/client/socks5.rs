@@ -1,6 +1,5 @@
 use std::convert::TryInto;
 use std::net::IpAddr;
-use std::str::FromStr;
 
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;

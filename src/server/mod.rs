@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
 use std::sync::Arc;
 
 use bytes::BytesMut;
 use dashmap::DashMap;
 use tokio::io::Result;
 use tokio::net::{TcpListener, TcpStream};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::prelude::*;
 use tokio::sync::Mutex;
 

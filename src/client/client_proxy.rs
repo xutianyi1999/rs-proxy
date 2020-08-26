@@ -1,15 +1,11 @@
-use std::sync::Arc;
-
-use bytes::{BufMut, BytesMut};
+use bytes::BytesMut;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
-use tokio::sync::Mutex;
 
 use crate::client;
-use crate::client::client_mux::ClientMuxChannel;
 use crate::client::socks5;
-use crate::commons::{Address, create_channel_id};
+use crate::commons::Address;
 
 pub async fn bind(host: &str) -> Result<()> {
   let mut tcp_listener = TcpListener::bind(host).await?;

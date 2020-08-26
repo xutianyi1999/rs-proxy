@@ -4,7 +4,6 @@ extern crate lazy_static;
 extern crate nanoid;
 
 use std::env;
-use std::str::FromStr;
 
 use tokio::fs;
 use tokio::io::{Error, ErrorKind, Result};
@@ -31,13 +30,17 @@ async fn main() -> Result<()> {
         let bind_addr = config["host"].as_str().unwrap();
         let host_list = config["remote"].as_vec().unwrap();
 
-        client::start(bind_addr, host_list).await;
+        if let Err(e) = client::start(bind_addr, host_list).await {
+          eprintln!("{:?}", e)
+        }
       }
       _ => {
         let host = config["host"].as_str().unwrap();
         let key = config["key"].as_str().unwrap();
 
-        server::start(host, key).await;
+        if let Err(e) = server::start(host, key).await {
+          eprintln!("{:?}", e);
+        }
       }
     }
     Ok(())

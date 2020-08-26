@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use nanoid;
 use tokio::io::{AsyncWriteExt, Result};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::prelude::*;
 
 use crate::message;
 use crate::message::Msg;

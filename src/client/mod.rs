@@ -1,12 +1,7 @@
-use std::borrow::{Borrow, BorrowMut};
 use std::collections::HashMap;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 
-use dashmap::{DashMap, DashSet, Map};
 use tokio::io::Result;
-use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use yaml_rust::yaml::Array;
 
@@ -43,8 +38,7 @@ pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
     }
   }
 
-  client_proxy::bind(bind_addr).await;
-  Ok(())
+  client_proxy::bind(bind_addr).await
 }
 
 async fn connect(host: &str, target_name: &str) -> Result<()> {
@@ -68,7 +62,7 @@ async fn connect(host: &str, target_name: &str) -> Result<()> {
       eprintln!("{:?}", e);
     }
     eprintln!("{} disconnected", target_name);
-    CONNECTION_POOL.lock().unwrap().remove(&channel_id);
+    let _ = CONNECTION_POOL.lock().unwrap().remove(&channel_id);
   }
 }
 

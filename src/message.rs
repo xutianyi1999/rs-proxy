@@ -1,8 +1,4 @@
-use std::net::IpAddr;
-use std::str::FromStr;
-
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use bytes::buf::BufExt;
 use tokio::io::{ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::tcp::OwnedReadHalf;
