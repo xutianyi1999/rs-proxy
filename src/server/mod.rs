@@ -10,20 +10,21 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::prelude::*;
 use tokio::sync::Mutex;
 
-use crate::commons::Address;
+use crate::commons::{Address, MsgReadHandler, MsgWriteHandler};
 use crate::message;
 use crate::message::Msg;
 
+type DB = Arc<DashMap<String, OwnedWriteHalf>>;
+
 pub async fn start(host: &str, key: &str) -> Result<()> {
-  let mut listener = TcpListener::bind("127.0.0.1:12345").await?;
+  let mut listener = TcpListener::bind(host).await?;
 
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
       let db: DB = Arc::new(DashMap::new());
 
-      match process(socket, db.clone()).await {
-        Ok(_) => (),
-        Err(e) => eprintln!("{:?}", e)
+      if let Err(e) = process(socket, db.clone()).await {
+        eprintln!("{:?}", e);
       };
       db.clear();
     });
@@ -31,21 +32,30 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   Ok(())
 }
 
-type DB = Arc<DashMap<String, OwnedWriteHalf>>;
-
 async fn process(socket: TcpStream, db: DB) -> Result<()> {
   let (mut rx, tx) = socket.into_split();
   let tx = Arc::new(Mutex::new(tx));
 
   loop {
-    let msg = message::read_msg(&mut rx).await?;
-    match message::decode(msg)? {
+    let msg = rx.read_msg().await?;
+
+    match msg {
       Msg::CONNECT(channel_id, addr) => {
         let tx = tx.clone();
         let db = db.clone();
 
         tokio::spawn(async move {
-          child_channel_process(tx, channel_id, addr, db)
+          if let Err(e) = child_channel_process(&tx, &channel_id, &addr, &db).await {
+            eprintln!("{:?}", e);
+          }
+
+          if let Some(_) = db.remove(&channel_id) {
+            let mut msg = message::encode(&Msg::DISCONNECT(channel_id));
+
+            if let Err(e) = tx.lock().await.write_all(&mut msg).await {
+              eprintln!("{:?}", e)
+            }
+          }
         });
       }
       Msg::DISCONNECT(channel_id) => {
@@ -60,30 +70,30 @@ async fn process(socket: TcpStream, db: DB) -> Result<()> {
   }
 }
 
-async fn child_channel_process(main_tx: Arc<Mutex<OwnedWriteHalf>>, channel_id: String, addr: Address, db: DB) -> Result<()> {
-  let addr = (addr.0.as_str(), addr.1);
-  let socket = TcpStream::connect(addr).await?;
+async fn child_channel_process(main_tx: &Arc<Mutex<OwnedWriteHalf>>, channel_id: &String, addr: &Address, db: &DB) -> Result<()> {
+  let socket = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
+    Ok(socket) => socket,
+    Err(e) => {
+      main_tx.lock().await.write_all(&mut message::encode(&Msg::DISCONNECT(channel_id.clone()))).await?;
+      return Err(e);
+    }
+  };
+
   let (mut rx, tx) = socket.into_split();
 
   db.insert(channel_id.clone(), tx);
 
-  let mut buff = BytesMut::new();
-  let res = loop {
+  loop {
+    let mut buff = BytesMut::new();
+
     match rx.read_buf(&mut buff).await {
       Ok(len) => if len == 0 {
-        break Ok(());
+        return Ok(());
       }
       Err(e) => {
-        break Err(e);
+        return Err(e);
       }
     }
-    // send msg
-    buff.clear();
+    main_tx.lock().await.write_msg(&Msg::DATA(channel_id.clone(), buff.freeze())).await?;
   };
-
-  if let Some(_) = db.remove(&channel_id) {
-    let mut msg = message::encode(&Msg::DISCONNECT(channel_id));
-    main_tx.lock().await.write_all(&mut msg).await?;
-  }
-  res
 }

@@ -7,7 +7,7 @@ use std::env;
 use std::str::FromStr;
 
 use tokio::fs;
-use tokio::io::Result;
+use tokio::io::{Error, ErrorKind, Result};
 use yaml_rust::YamlLoader;
 
 mod client;
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
         let bind_addr = config["host"].as_str().unwrap();
         let host_list = config["remote"].as_vec().unwrap();
 
-        client::start(bind_addr, host_list.clone()).await;
+        client::start(bind_addr, host_list).await;
       }
       _ => {
         let host = config["host"].as_str().unwrap();
@@ -40,6 +40,8 @@ async fn main() -> Result<()> {
         server::start(host, key).await;
       }
     }
+    Ok(())
+  } else {
+    Err(Error::new(ErrorKind::Other, "Args error"))
   }
-  Ok(())
 }

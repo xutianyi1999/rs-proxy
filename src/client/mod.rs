@@ -22,7 +22,7 @@ lazy_static! {
   static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
 }
 
-pub async fn start(bind_addr: &str, host_list: Array) -> Result<()> {
+pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
   for host in host_list {
     let target_name = host["name"].as_str().unwrap();
     let count = host["connections"].as_i64().unwrap();
