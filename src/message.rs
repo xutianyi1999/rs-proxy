@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use bytes::buf::BufExt;
 use tokio::io::{ErrorKind, Result};
 use tokio::io::Error;
@@ -17,18 +17,18 @@ const DATA: u8 = 0x03;
 pub enum Msg {
   CONNECT(String, Address),
   DISCONNECT(String),
-  DATA(String, BytesMut),
+  DATA(String, Bytes),
 }
 
-pub fn encode(msg: Msg) -> BytesMut {
+pub fn encode(msg: &Msg) -> Bytes {
   match msg {
-    Msg::CONNECT(id, addr) => encode_connect_msg(addr, &id),
-    Msg::DISCONNECT(id) => encode_disconnect_msg(&id),
-    Msg::DATA(id, data) => encode_data_msg(&id, &data);
+    Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
+    Msg::DISCONNECT(id) => encode_disconnect_msg(id),
+    Msg::DATA(id, data) => encode_data_msg(id, data)
   }
 }
 
-fn encode_connect_msg(addr: Address, channel_id: &str) -> BytesMut {
+fn encode_connect_msg(addr: &Address, channel_id: &str) -> Bytes {
   let mut buff = BytesMut::new();
   buff.put_u8(CONNECT);
   buff.put_slice(channel_id.as_bytes());
@@ -36,26 +36,26 @@ fn encode_connect_msg(addr: Address, channel_id: &str) -> BytesMut {
   let (host, port) = addr;
 
   buff.put_slice(host.as_bytes());
-  buff.put_u16(port);
-  buff
+  buff.put_u16(port.clone());
+  buff.freeze()
 }
 
-fn encode_disconnect_msg(channel_id: &str) -> BytesMut {
+fn encode_disconnect_msg(channel_id: &str) -> Bytes {
   let mut buff = BytesMut::new();
   buff.put_u8(DISCONNECT);
   buff.put_slice(channel_id.as_bytes());
-  buff
+  buff.freeze()
 }
 
-fn encode_data_msg(channel_id: &str, data: &[u8]) -> BytesMut {
+fn encode_data_msg(channel_id: &str, data: &[u8]) -> Bytes {
   let mut buff = BytesMut::new();
   buff.put_u8(DATA);
   buff.put_slice(channel_id.as_bytes());
   buff.put_slice(data);
-  buff
+  buff.freeze()
 }
 
-pub fn decode(mut msg: BytesMut) -> Result<Msg> {
+pub fn decode(mut msg: Bytes) -> Result<Msg> {
   let mode = msg.get_u8();
   let mut str = vec![0u8; 4];
   msg.copy_to_slice(&mut str);
@@ -75,9 +75,9 @@ pub fn decode(mut msg: BytesMut) -> Result<Msg> {
   Ok(msg)
 }
 
-pub async fn read_msg(socket: &mut OwnedReadHalf) -> Result<BytesMut> {
-  let len = socket.read_u32().await?;
+pub async fn read_msg(rx: &mut OwnedReadHalf) -> Result<Bytes> {
+  let len = rx.read_u32().await?;
   let mut msg = BytesMut::with_capacity(len as usize);
   rx.read_exact(&mut msg).await?;
-  Ok(msg)
+  Ok(msg.freeze())
 }

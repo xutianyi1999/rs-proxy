@@ -1,5 +1,6 @@
 use std::convert::TryInto;
 use std::net::IpAddr;
+use std::str::FromStr;
 
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;
@@ -56,7 +57,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let addr: [u8; 4] = buffer[..4].try_into().unwrap();
       let port: [u8; 2] = buffer[4..].try_into().unwrap();
 
-      Address::IP(IpAddr::from(addr), u16::from_be_bytes(port))
+      (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
     }
     IPV6 => {
       let mut buffer = [0u8; 18];
@@ -65,7 +66,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let addr: [u8; 16] = buffer[..16].try_into().unwrap();
       let port: [u8; 2] = buffer[16..].try_into().unwrap();
 
-      Address::IP(IpAddr::from(addr), u16::from_be_bytes(port))
+      (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
     }
     DOMAIN_NAME => {
       let len = socket.read_u8().await? as usize;
@@ -76,7 +77,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let domain_name = String::from_utf8(Vec::from(&buffer[..len])).unwrap();
       let port: [u8; 2] = buffer[len..].try_into().unwrap();
 
-      Address::DOMAIN(domain_name, u16::from_be_bytes(port))
+      (domain_name, u16::from_be_bytes(port))
     }
     _ => {
       write_err_reply(socket, 0x08).await?;

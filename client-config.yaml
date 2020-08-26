@@ -1,0 +1,7 @@
+---
+host: 0.0.0.0:12333
+remote:
+  - name: local
+    connections: 3
+    host: 127.0.0.0:12345
+    key: 1234a

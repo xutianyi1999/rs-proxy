@@ -3,13 +3,12 @@ extern crate lazy_static;
 #[macro_use]
 extern crate nanoid;
 
-use std::sync::Arc;
+use std::env;
+use std::str::FromStr;
 
-use dashmap::DashMap;
+use tokio::fs;
 use tokio::io::Result;
-use tokio::net::TcpStream;
-use tokio::prelude::*;
-use tokio::sync::Mutex;
+use yaml_rust::YamlLoader;
 
 mod client;
 mod server;
@@ -18,5 +17,29 @@ mod message;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+  let mut args = env::args();
+  args.next();
+
+  if let Some(mode) = args.next() {
+    let config_path = args.next().unwrap();
+    let config = fs::read_to_string(config_path).await?;
+
+    let config = &YamlLoader::load_from_str(&config).unwrap()[0];
+
+    match mode.as_str() {
+      "client" => {
+        let bind_addr = config["host"].as_str().unwrap();
+        let host_list = config["remote"].as_vec().unwrap();
+
+        client::start(bind_addr, host_list.clone()).await;
+      }
+      _ => {
+        let host = config["host"].as_str().unwrap();
+        let key = config["key"].as_str().unwrap();
+
+        server::start(host, key).await;
+      }
+    }
+  }
   Ok(())
 }

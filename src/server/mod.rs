@@ -14,14 +14,14 @@ use crate::commons::Address;
 use crate::message;
 use crate::message::Msg;
 
-pub async fn start() -> Result<()> {
+pub async fn start(host: &str, key: &str) -> Result<()> {
   let mut listener = TcpListener::bind("127.0.0.1:12345").await?;
 
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
       let db: DB = Arc::new(DashMap::new());
 
-      match process(socket, db).await {
+      match process(socket, db.clone()).await {
         Ok(_) => (),
         Err(e) => eprintln!("{:?}", e)
       };
@@ -49,7 +49,7 @@ async fn process(socket: TcpStream, db: DB) -> Result<()> {
         });
       }
       Msg::DISCONNECT(channel_id) => {
-        db.remove(&channel_id)
+        db.remove(&channel_id);
       }
       Msg::DATA(channel_id, data) => {
         if let Some(mut tx) = db.get_mut(&channel_id) {
@@ -61,6 +61,7 @@ async fn process(socket: TcpStream, db: DB) -> Result<()> {
 }
 
 async fn child_channel_process(main_tx: Arc<Mutex<OwnedWriteHalf>>, channel_id: String, addr: Address, db: DB) -> Result<()> {
+  let addr = (addr.0.as_str(), addr.1);
   let socket = TcpStream::connect(addr).await?;
   let (mut rx, tx) = socket.into_split();
 
@@ -76,10 +77,12 @@ async fn child_channel_process(main_tx: Arc<Mutex<OwnedWriteHalf>>, channel_id: 
         break Err(e);
       }
     }
+    // send msg
+    buff.clear();
   };
 
   if let Some(_) = db.remove(&channel_id) {
-    let mut msg = message::encode(Msg::DISCONNECT(channel_id));
+    let mut msg = message::encode(&Msg::DISCONNECT(channel_id));
     main_tx.lock().await.write_all(&mut msg).await?;
   }
   res

@@ -8,6 +8,7 @@ use dashmap::{DashMap, DashSet, Map};
 use tokio::io::Result;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
+use yaml_rust::yaml::Array;
 
 use client_mux::ClientMuxChannel;
 
@@ -18,25 +19,39 @@ mod client_proxy;
 mod socks5;
 
 lazy_static! {
-    pub static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
+  static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
 }
 
-pub async fn start(bind_addr: &str, host_list: Vec<String>) -> Result<()> {
+pub async fn start(bind_addr: &str, host_list: Array) -> Result<()> {
   for host in host_list {
-    tokio::spawn(async move {
-      connect(host).await;
-    });
+    let target_name = host["name"].as_str().unwrap();
+    let count = host["connections"].as_i64().unwrap();
+    let addr = host["host"].as_str().unwrap();
+
+    for i in 0..count {
+      let target_name = target_name.to_string();
+      let addr = addr.to_string();
+
+      tokio::spawn(async move {
+        let target_name = format!("{}-{}", target_name, i);
+
+        if let Err(e) = connect(&addr, &target_name).await {
+          eprintln!("{:?}", e);
+        }
+        eprintln!("{} error", target_name);
+      });
+    }
   }
 
   client_proxy::bind(bind_addr).await;
   Ok(())
 }
 
-async fn connect(host: String) -> Result<()> {
+async fn connect(host: &str, target_name: &str) -> Result<()> {
   let channel_id = commons::create_channel_id();
 
   loop {
-    let (rx, tx) = match TcpStream::connect(&host).await {
+    let (rx, tx) = match TcpStream::connect(host).await {
       Ok(socket) => socket.into_split(),
       Err(e) => {
         eprintln!("{:?}", e);
@@ -44,12 +59,15 @@ async fn connect(host: String) -> Result<()> {
       }
     };
 
+    println!("{} connected", target_name);
+
     let cmc = Arc::new(ClientMuxChannel::new(tx));
     CONNECTION_POOL.lock().unwrap().put(channel_id.clone(), cmc.clone());
 
     if let Err(e) = cmc.recv_process(rx).await {
       eprintln!("{:?}", e);
     }
+    eprintln!("{} disconnected", target_name);
     CONNECTION_POOL.lock().unwrap().remove(&channel_id);
   }
 }
