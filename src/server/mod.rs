@@ -8,8 +8,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::prelude::*;
 use tokio::sync::Mutex;
 
-use crate::commons::{Address, MsgReadHandler, MsgWriteHandler};
-use crate::message;
+use crate::commons::{MsgReadHandler, MsgWriteHandler};
 use crate::message::Msg;
 
 type DB = Arc<DashMap<String, OwnedWriteHalf>>;
@@ -23,7 +22,7 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
       println!("{:?} connected", addr);
       let db: DB = Arc::new(DashMap::new());
 
-      if let Err(e) = process(socket, db.clone()).await {
+      if let Err(e) = process(socket, &db).await {
         eprintln!("{:?}", e);
       };
       db.clear();
@@ -32,7 +31,7 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   Ok(())
 }
 
-async fn process(socket: TcpStream, db: DB) -> Result<()> {
+async fn process(socket: TcpStream, db: &DB) -> Result<()> {
   let (mut rx, tx) = socket.into_split();
   let tx = Arc::new(Mutex::new(tx));
 

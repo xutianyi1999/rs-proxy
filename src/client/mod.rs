@@ -33,7 +33,7 @@ pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
         if let Err(e) = connect(&addr, &target_name).await {
           eprintln!("{:?}", e);
         }
-        eprintln!("{} error", target_name);
+        eprintln!("{} crashed", target_name);
       });
     }
   }
@@ -61,8 +61,8 @@ async fn connect(host: &str, target_name: &str) -> Result<()> {
     if let Err(e) = cmc.recv_process(rx).await {
       eprintln!("{:?}", e);
     }
-    eprintln!("{} disconnected", target_name);
     let _ = CONNECTION_POOL.lock().unwrap().remove(&channel_id);
+    eprintln!("{} disconnected", target_name);
   }
 }
 

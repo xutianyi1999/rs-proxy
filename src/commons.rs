@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use bytes::{BufMut, BytesMut};
 use nanoid;
 use tokio::io::{AsyncWriteExt, Result};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -21,10 +22,12 @@ pub trait MsgWriteHandler {
 impl MsgWriteHandler for OwnedWriteHalf {
   async fn write_msg(&mut self, msg: &Msg) -> Result<()> {
     let msg = message::encode(msg);
-    let len = msg.len() as u32;
 
-    self.write_u32(len).await?;
-    self.write_all(&msg).await
+    let mut data = BytesMut::new();
+    data.put_u32(msg.len() as u32);
+    data.put_slice(&msg);
+
+    self.write_all(&data).await
   }
 }
 
