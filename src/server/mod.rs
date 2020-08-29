@@ -88,12 +88,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
                                mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
   let (mut rx, mut tx) = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
     Ok(socket) => socket.into_split(),
-    Err(e) => {
-      if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id.clone())).await {
-        eprintln!("Send disconnect msg error");
-      }
-      return Err(e);
-    }
+    Err(e) => return Err(e)
   };
 
   tokio::spawn(async move {
@@ -115,6 +110,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
         return Err(e);
       }
     }
+
     if let Err(e) = mpsc_tx.send(Msg::DATA(channel_id.clone(), buff.freeze())).await {
       return Err(Error::new(ErrorKind::Other, e.to_string()));
     }
