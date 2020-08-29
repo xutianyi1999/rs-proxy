@@ -1,10 +1,8 @@
 use bytes::{Bytes, BytesMut};
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::net::tcp::OwnedWriteHalf;
 use tokio::prelude::*;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::client;
 use crate::client::socks5;
@@ -25,7 +23,7 @@ pub async fn bind(host: &str) -> Result<()> {
 
 async fn process(mut socket: TcpStream) -> Result<()> {
   let address = socks5_decode(&mut socket).await?;
-  let (mut rx, tx) = socket.into_split();
+  let (mut rx, mut tx) = socket.into_split();
 
   let res = client::CONNECTION_POOL.lock().unwrap().get();
 
@@ -34,18 +32,15 @@ async fn process(mut socket: TcpStream) -> Result<()> {
     None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
   };
 
-  let (mpsc_tx, mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
+  let (mpsc_tx, mut mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
 
   tokio::spawn(async move {
-    async fn rx_process(mut tx: OwnedWriteHalf, mut rx: UnboundedReceiver<Bytes>) -> Result<()> {
-      while let Some(data) = rx.recv().await {
-        tx.write_all(&data).await?;
-      };
-      Ok(())
-    }
-    if let Err(e) = rx_process(tx, mpsc_rx).await {
-      eprintln!("{:?}", e);
-    }
+    while let Some(data) = mpsc_rx.recv().await {
+      if let Err(e) = tx.write_all(&data).await {
+        eprintln!("{:?}", e);
+        return;
+      }
+    };
   });
 
   let mut p2p_channel = client_mux_channel.register(address, mpsc_tx).await?;

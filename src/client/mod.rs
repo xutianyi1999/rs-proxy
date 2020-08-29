@@ -2,10 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::io::Result;
-use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::Receiver;
 use yaml_rust::yaml::Array;
 
 use client_mux::ClientMuxChannel;
@@ -50,7 +48,7 @@ async fn connect(host: &str, target_name: &str) -> Result<()> {
   let channel_id = commons::create_channel_id();
 
   loop {
-    let (rx, tx) = match TcpStream::connect(host).await {
+    let (rx, mut tx) = match TcpStream::connect(host).await {
       Ok(socket) => socket.into_split(),
       Err(e) => {
         eprintln!("{:?}", e);
@@ -60,17 +58,15 @@ async fn connect(host: &str, target_name: &str) -> Result<()> {
 
     println!("{} connected", target_name);
 
-    let (mpsc_tx, mpsc_rx) = mpsc::channel::<Msg>(300);
+    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(300);
+
     tokio::spawn(async move {
-      async fn rx_process(mut tx: OwnedWriteHalf, mut rx: Receiver<Msg>) -> Result<()> {
-        while let Some(msg) = rx.recv().await {
-          tx.write_msg(&msg).await?;
-        };
-        Ok(())
-      }
-      if let Err(e) = rx_process(tx, mpsc_rx).await {
-        eprintln!("{:?}", e);
-      }
+      while let Some(msg) = mpsc_rx.recv().await {
+        if let Err(e) = tx.write_msg(&msg).await {
+          eprintln!("{:?}", e);
+          return;
+        }
+      };
     });
 
     let cmc = Arc::new(ClientMuxChannel::new(mpsc_tx));

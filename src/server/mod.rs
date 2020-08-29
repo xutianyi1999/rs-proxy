@@ -4,10 +4,9 @@ use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::net::tcp::OwnedWriteHalf;
 use tokio::prelude::*;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
 
 use crate::commons::{Address, MsgReadHandler, MsgWriteHandler};
 use crate::message::Msg;
@@ -34,19 +33,16 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB) -> Result<()> {
-  let (mut rx, tx) = socket.into_split();
-  let (mpsc_tx, mpsc_rx) = mpsc::channel::<Msg>(200);
+  let (mut rx, mut tx) = socket.into_split();
+  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(200);
 
   tokio::spawn(async move {
-    async fn rx_process(mut tx: OwnedWriteHalf, mut rx: Receiver<Msg>) -> Result<()> {
-      while let Some(msg) = rx.recv().await {
-        tx.write_msg(&msg).await?;
-      };
-      Ok(())
-    }
-    if let Err(e) = rx_process(tx, mpsc_rx).await {
-      eprintln!("{:?}", e);
-    }
+    while let Some(msg) = mpsc_rx.recv().await {
+      if let Err(e) = tx.write_msg(&msg).await {
+        eprintln!("{:?}", e);
+        return;
+      }
+    };
   });
 
   loop {
@@ -89,8 +85,8 @@ async fn process(socket: TcpStream, db: &DB) -> Result<()> {
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &mut Sender<Msg>, mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
-  let (mut rx, tx) = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
+                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
+  let (mut rx, mut tx) = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
     Ok(socket) => socket.into_split(),
     Err(e) => {
       if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id.clone())).await {
@@ -101,15 +97,12 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   };
 
   tokio::spawn(async move {
-    async fn rx_process(mut tx: OwnedWriteHalf, mut rx: UnboundedReceiver<Bytes>) -> Result<()> {
-      while let Some(data) = rx.recv().await {
-        tx.write_all(&data).await?;
-      };
-      Ok(())
-    }
-    if let Err(e) = rx_process(tx, mpsc_rx).await {
-      eprintln!("{:?}", e);
-    }
+    while let Some(data) = mpsc_rx.recv().await {
+      if let Err(e) = tx.write_all(&data).await {
+        eprintln!("{:?}", e);
+        return;
+      }
+    };
   });
 
   loop {
