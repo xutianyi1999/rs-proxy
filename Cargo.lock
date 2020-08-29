@@ -465,7 +465,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
 dependencies = [
- "rand_core 0.3.1",
+  "rand_core 0.3.1",
 ]
 
 [[package]]
@@ -475,12 +475,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2439c63f3f6139d1b57529d16bc3b8bb855230c8efcc5d3a896c8bea7c3b1e84"
 
 [[package]]
+name = "rs-proxy"
+version = "0.1.0"
+dependencies = [
+  "async-trait",
+  "bytes",
+  "dashmap",
+  "lazy_static",
+  "nanoid",
+  "tokio",
+  "yaml-rust",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "138e3e0acb6c9fb258b19b67cb8abd63c00679d2851805ea151465464fe9030a"
 dependencies = [
- "semver",
+  "semver",
 ]
 
 [[package]]
@@ -541,19 +554,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-xid",
-]
-
-[[package]]
-name = "t-proxy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "bytes",
- "dashmap",
- "lazy_static",
- "nanoid",
- "tokio",
- "yaml-rust",
 ]
 
 [[package]]
