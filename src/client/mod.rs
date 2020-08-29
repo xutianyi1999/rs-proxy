@@ -2,12 +2,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tokio::io::Result;
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
 use yaml_rust::yaml::Array;
 
 use client_mux::ClientMuxChannel;
 
 use crate::commons;
+use crate::commons::MsgWriteHandler;
+use crate::message::Msg;
 
 mod client_mux;
 mod client_proxy;
@@ -55,12 +60,27 @@ async fn connect(host: &str, target_name: &str) -> Result<()> {
 
     println!("{} connected", target_name);
 
-    let cmc = Arc::new(ClientMuxChannel::new(tx));
+    let (mpsc_tx, mpsc_rx) = mpsc::channel::<Msg>(300);
+    tokio::spawn(async move {
+      async fn rx_process(mut tx: OwnedWriteHalf, mut rx: Receiver<Msg>) -> Result<()> {
+        while let Some(msg) = rx.recv().await {
+          tx.write_msg(&msg).await?;
+        };
+        Ok(())
+      }
+      if let Err(e) = rx_process(tx, mpsc_rx).await {
+        eprintln!("{:?}", e);
+      }
+    });
+
+    let cmc = Arc::new(ClientMuxChannel::new(mpsc_tx));
+
     CONNECTION_POOL.lock().unwrap().put(channel_id.clone(), cmc.clone());
 
     if let Err(e) = cmc.recv_process(rx).await {
       eprintln!("{:?}", e);
     }
+
     let _ = CONNECTION_POOL.lock().unwrap().remove(&channel_id);
     eprintln!("{} disconnected", target_name);
   }

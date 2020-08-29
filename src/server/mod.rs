@@ -1,17 +1,18 @@
 use std::sync::Arc;
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use dashmap::DashMap;
-use tokio::io::Result;
+use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::tcp::OwnedWriteHalf;
 use tokio::prelude::*;
-use tokio::sync::Mutex;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{Receiver, Sender, UnboundedReceiver, UnboundedSender};
 
-use crate::commons::{MsgReadHandler, MsgWriteHandler};
+use crate::commons::{Address, MsgReadHandler, MsgWriteHandler};
 use crate::message::Msg;
 
-type DB = Arc<DashMap<String, OwnedWriteHalf>>;
+type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
 
 pub async fn start(host: &str, key: &str) -> Result<()> {
   let mut listener = TcpListener::bind(host).await?;
@@ -25,7 +26,8 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
       if let Err(e) = process(socket, &db).await {
         eprintln!("{:?}", e);
       };
-      db.clear();
+
+      db.clear()
     });
   };
   Ok(())
@@ -33,36 +35,39 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
 
 async fn process(socket: TcpStream, db: &DB) -> Result<()> {
   let (mut rx, tx) = socket.into_split();
-  let tx = Arc::new(Mutex::new(tx));
+  let (mpsc_tx, mpsc_rx) = mpsc::channel::<Msg>(200);
+
+  tokio::spawn(async move {
+    async fn rx_process(mut tx: OwnedWriteHalf, mut rx: Receiver<Msg>) -> Result<()> {
+      while let Some(msg) = rx.recv().await {
+        tx.write_msg(&msg).await?;
+      };
+      Ok(())
+    }
+    if let Err(e) = rx_process(tx, mpsc_rx).await {
+      eprintln!("{:?}", e);
+    }
+  });
 
   loop {
     let msg = rx.read_msg().await?;
 
     match msg {
       Msg::CONNECT(channel_id, addr) => {
-        let rx = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
-          Ok(socket) => {
-            let (rx, tx) = socket.into_split();
-            db.insert(channel_id.clone(), tx);
-            rx
-          }
-          Err(e) => {
-            tx.lock().await.write_msg(&Msg::DISCONNECT(channel_id)).await?;
-            return Err(e);
-          }
-        };
+        let (child_mpsc_tx, child_mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
+        db.insert(channel_id.clone(), child_mpsc_tx);
 
-        let tx = tx.clone();
         let db = db.clone();
 
+        let mut mpsc_tx = mpsc_tx.clone();
         tokio::spawn(async move {
-          if let Err(e) = child_channel_process(&tx, &channel_id, rx).await {
+          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
             eprintln!("{:?}", e);
           }
 
           if let Some(_) = db.remove(&channel_id) {
-            if let Err(e) = tx.lock().await.write_msg(&Msg::DISCONNECT(channel_id)).await {
-              eprintln!("{:?}", e)
+            if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id.clone())).await {
+              eprintln!("Send disconnect msg error");
             }
           }
         });
@@ -71,15 +76,42 @@ async fn process(socket: TcpStream, db: &DB) -> Result<()> {
         db.remove(&channel_id);
       }
       Msg::DATA(channel_id, data) => {
-        if let Some(mut tx) = db.get_mut(&channel_id) {
-          tx.write_all(&data).await?;
+        if let Some(tx) = db.get(&channel_id) {
+          if let Err(_) = tx.send(data) {
+            drop(tx);
+            db.remove(&channel_id);
+            eprintln!("Send msg to child TX error");
+          }
         }
       }
-    }
+    };
   }
 }
 
-async fn child_channel_process(main_tx: &Arc<Mutex<OwnedWriteHalf>>, channel_id: &String, mut rx: OwnedReadHalf) -> Result<()> {
+async fn child_channel_process(channel_id: &String, addr: Address,
+                               mpsc_tx: &mut Sender<Msg>, mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
+  let (mut rx, tx) = match TcpStream::connect((addr.0.as_str(), addr.1)).await {
+    Ok(socket) => socket.into_split(),
+    Err(e) => {
+      if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id.clone())).await {
+        eprintln!("Send disconnect msg error");
+      }
+      return Err(e);
+    }
+  };
+
+  tokio::spawn(async move {
+    async fn rx_process(mut tx: OwnedWriteHalf, mut rx: UnboundedReceiver<Bytes>) -> Result<()> {
+      while let Some(data) = rx.recv().await {
+        tx.write_all(&data).await?;
+      };
+      Ok(())
+    }
+    if let Err(e) = rx_process(tx, mpsc_rx).await {
+      eprintln!("{:?}", e);
+    }
+  });
+
   loop {
     let mut buff = BytesMut::new();
     match rx.read_buf(&mut buff).await {
@@ -90,6 +122,8 @@ async fn child_channel_process(main_tx: &Arc<Mutex<OwnedWriteHalf>>, channel_id:
         return Err(e);
       }
     }
-    main_tx.lock().await.write_msg(&Msg::DATA(channel_id.clone(), buff.freeze())).await?;
+    if let Err(e) = mpsc_tx.send(Msg::DATA(channel_id.clone(), buff.freeze())).await {
+      return Err(Error::new(ErrorKind::Other, e.to_string()));
+    }
   };
 }
