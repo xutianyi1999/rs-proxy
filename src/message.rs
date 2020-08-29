@@ -72,7 +72,7 @@ pub fn decode(mut msg: Bytes) -> Result<Msg> {
 }
 
 pub async fn read_msg(rx: &mut OwnedReadHalf) -> Result<Bytes> {
-  let len = rx.read_u32().await?;
+  let len = rx.read_u16().await?;
   let mut msg = vec![0u8; len as usize];
   rx.read_exact(&mut msg).await?;
   Ok(Bytes::from(msg))

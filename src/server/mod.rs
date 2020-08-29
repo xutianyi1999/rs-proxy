@@ -101,7 +101,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   });
 
   loop {
-    let mut buff = BytesMut::with_capacity(4294967295);
+    let mut buff = BytesMut::with_capacity(65530);
 
     match rx.read_buf(&mut buff).await {
       Ok(len) => if len == 0 {

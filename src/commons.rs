@@ -24,7 +24,7 @@ impl MsgWriteHandler for OwnedWriteHalf {
     let msg = message::encode(msg);
 
     let mut data = BytesMut::new();
-    data.put_u32(msg.len() as u32);
+    data.put_u16(msg.len() as u16);
     data.put_slice(&msg);
 
     self.write_all(&data).await
