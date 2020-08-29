@@ -46,7 +46,7 @@ async fn process(mut socket: TcpStream) -> Result<()> {
   let mut p2p_channel = client_mux_channel.register(address, mpsc_tx).await?;
 
   loop {
-    let mut buff = BytesMut::new();
+    let mut buff = BytesMut::with_capacity(4294967295);
 
     match rx.read_buf(&mut buff).await {
       Ok(size) => if size == 0 {
