@@ -34,8 +34,6 @@ impl ClientMuxChannel {
         Msg::DATA(channel_id, data) => {
           if let Some(tx) = self.db.get(&channel_id) {
             if let Err(_) = tx.send(data) {
-              drop(tx);
-              self.db.remove(&channel_id);
               eprintln!("Send msg to local TX error");
             }
           }
@@ -61,9 +59,9 @@ impl ClientMuxChannel {
     Ok(p2p_channel)
   }
 
-  async fn remove(&self, channel_id: String, tx: &mut Sender<Msg>) -> Result<()> {
-    if let Some(_) = self.db.remove(&channel_id) {
-      if let Err(e) = tx.send(Msg::DISCONNECT(channel_id)).await {
+  async fn remove(&self, channel_id: &String, tx: &mut Sender<Msg>) -> Result<()> {
+    if let Some(_) = self.db.remove(channel_id) {
+      if let Err(e) = tx.send(Msg::DISCONNECT(channel_id.clone())).await {
         return Err(Error::new(ErrorKind::Other, e.to_string()));
       }
     }
@@ -86,6 +84,6 @@ impl P2pChannel<'_> {
   }
 
   pub async fn close(&mut self) -> Result<()> {
-    self.mux_channel.remove(self.channel_id.clone(), &mut self.tx).await
+    self.mux_channel.remove(&self.channel_id, &mut self.tx).await
   }
 }

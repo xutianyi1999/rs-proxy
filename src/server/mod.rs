@@ -54,15 +54,15 @@ async fn process(socket: TcpStream, db: &DB) -> Result<()> {
         db.insert(channel_id.clone(), child_mpsc_tx);
 
         let db = db.clone();
-
         let mut mpsc_tx = mpsc_tx.clone();
+
         tokio::spawn(async move {
           if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
             eprintln!("{:?}", e);
           }
 
           if let Some(_) = db.remove(&channel_id) {
-            if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id.clone())).await {
+            if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
               eprintln!("Send disconnect msg error");
             }
           }
@@ -74,8 +74,6 @@ async fn process(socket: TcpStream, db: &DB) -> Result<()> {
       Msg::DATA(channel_id, data) => {
         if let Some(tx) = db.get(&channel_id) {
           if let Err(_) = tx.send(data) {
-            drop(tx);
-            db.remove(&channel_id);
             eprintln!("Send msg to child TX error");
           }
         }
