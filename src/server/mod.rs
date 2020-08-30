@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bytes::{Bytes, BytesMut};
+use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
@@ -18,11 +19,13 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   println!("bind {:?}", listener.local_addr()?);
 
   while let Ok((socket, addr)) = listener.accept().await {
+    let key = key.to_string();
+
     tokio::spawn(async move {
       println!("{:?} connected", addr);
       let db: DB = Arc::new(DashMap::new());
 
-      if let Err(e) = process(socket, &db).await {
+      if let Err(e) = process(socket, &db, key).await {
         eprintln!("{:?}", e);
       };
 
@@ -32,21 +35,25 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   Ok(())
 }
 
-async fn process(socket: TcpStream, db: &DB) -> Result<()> {
+async fn process(socket: TcpStream, db: &DB, key: String) -> Result<()> {
   let (mut rx, mut tx) = socket.into_split();
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(200);
 
+  let k = key.clone();
   tokio::spawn(async move {
+    let mut rc4 = Rc4::new(k.as_bytes());
+
     while let Some(msg) = mpsc_rx.recv().await {
-      if let Err(e) = tx.write_msg(&msg).await {
+      if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
         eprintln!("{:?}", e);
         return;
       }
     };
   });
 
+  let mut rc4 = Rc4::new(key.as_bytes());
   loop {
-    let msg = rx.read_msg().await?;
+    let msg = rx.read_msg(&mut rc4).await?;
 
     match msg {
       Msg::CONNECT(channel_id, addr) => {

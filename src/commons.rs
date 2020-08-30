@@ -1,7 +1,10 @@
 use async_trait::async_trait;
-use bytes::{BufMut, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
+use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
+use crypto::rc4::Rc4;
+use crypto::symmetriccipher::{Decryptor, Encryptor};
 use nanoid;
-use tokio::io::{AsyncWriteExt, Result};
+use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::message;
@@ -15,13 +18,14 @@ pub fn create_channel_id() -> String {
 
 #[async_trait]
 pub trait MsgWriteHandler {
-  async fn write_msg(&mut self, msg: &Msg) -> Result<()>;
+  async fn write_msg(&mut self, msg: &Msg, rc4: &mut Rc4) -> Result<()>;
 }
 
 #[async_trait]
 impl MsgWriteHandler for OwnedWriteHalf {
-  async fn write_msg(&mut self, msg: &Msg) -> Result<()> {
+  async fn write_msg(&mut self, msg: &Msg, rc4: &mut Rc4) -> Result<()> {
     let msg = message::encode(msg);
+    let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
     let mut data = BytesMut::new();
     data.put_u16(msg.len() as u16);
@@ -33,13 +37,39 @@ impl MsgWriteHandler for OwnedWriteHalf {
 
 #[async_trait]
 pub trait MsgReadHandler {
-  async fn read_msg(&mut self) -> Result<Msg>;
+  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg>;
 }
 
 #[async_trait]
 impl MsgReadHandler for OwnedReadHalf {
-  async fn read_msg(&mut self) -> Result<Msg> {
+  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg> {
     let data = message::read_msg(self).await?;
-    message::decode(data)
+    let data = crypto(&data, rc4, MODE::DECRYPT)?;
+    message::decode(Bytes::from(data))
   }
+}
+
+enum MODE {
+  ENCRYPT,
+  DECRYPT,
+}
+
+fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> {
+  let mut ref_read_buf = RefReadBuffer::new(input);
+  let mut out = vec![0u8; input.len()];
+  let mut ref_write_buf = RefWriteBuffer::new(&mut out);
+
+  let _ = match mode {
+    MODE::DECRYPT => {
+      if let Err(_) = rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
+        return Err(Error::new(ErrorKind::Other, "decrypt error"));
+      }
+    }
+    MODE::ENCRYPT => {
+      if let Err(_) = rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
+        return Err(Error::new(ErrorKind::Other, "encrypt error"));
+      }
+    }
+  };
+  Ok(out)
 }

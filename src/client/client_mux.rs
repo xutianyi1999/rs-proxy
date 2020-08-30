@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::tcp::OwnedReadHalf;
@@ -20,15 +21,15 @@ impl ClientMuxChannel {
     ClientMuxChannel { tx, db: DashMap::new() }
   }
 
-  pub async fn recv_process(&self, rx: OwnedReadHalf) -> Result<()> {
-    let res = self.f(rx).await;
+  pub async fn recv_process(&self, rx: OwnedReadHalf, key: &str) -> Result<()> {
+    let res = self.f(rx, Rc4::new(key.as_bytes())).await;
     self.db.clear();
     res
   }
 
-  async fn f(&self, mut rx: OwnedReadHalf) -> Result<()> {
+  async fn f(&self, mut rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
     loop {
-      let msg = rx.read_msg().await?;
+      let msg = rx.read_msg(&mut rc4).await?;
 
       match msg {
         Msg::DATA(channel_id, data) => {

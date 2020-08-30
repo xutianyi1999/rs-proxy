@@ -4,4 +4,4 @@ remote:
   - name: local
     connections: 1
     host: 127.0.0.1:12345
-    key: 1234a
+    key: "123a"
