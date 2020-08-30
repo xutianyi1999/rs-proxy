@@ -1,3 +1,5 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use bytes::Bytes;
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
@@ -14,15 +16,17 @@ type DB = DashMap<String, UnboundedSender<Bytes>>;
 pub struct ClientMuxChannel {
   tx: Sender<Msg>,
   db: DB,
+  is_close: AtomicBool,
 }
 
 impl ClientMuxChannel {
   pub fn new(tx: Sender<Msg>) -> ClientMuxChannel {
-    ClientMuxChannel { tx, db: DashMap::new() }
+    ClientMuxChannel { tx, db: DashMap::new(), is_close: AtomicBool::new(false) }
   }
 
   pub async fn recv_process(&self, rx: OwnedReadHalf, key: &str) -> Result<()> {
     let res = self.f(rx, Rc4::new(key.as_bytes())).await;
+    self.is_close.store(true, Ordering::SeqCst);
     self.db.clear();
     res
   }
@@ -48,6 +52,10 @@ impl ClientMuxChannel {
   }
 
   pub async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {
+    if self.is_close.load(Ordering::SeqCst) == true {
+      return Err(Error::new(ErrorKind::Other, "Is closed"))
+    }
+
     let channel_id = commons::create_channel_id();
     let mut tx = self.tx.clone();
 
