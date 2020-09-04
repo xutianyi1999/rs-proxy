@@ -38,7 +38,7 @@ remote:
 ./rs-proxy client client-config.yaml
 ```
 
-## Compile project
+## Build project
 ```shell script
 cargo build --release
 ```
