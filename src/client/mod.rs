@@ -10,7 +10,7 @@ use yaml_rust::yaml::Array;
 use client_mux::ClientMuxChannel;
 
 use crate::{commons, CONFIG_ERROR};
-use crate::commons::{MsgWriteHandler, OptionConvert};
+use crate::commons::{MsgWriteHandler, OptionConvert, StdResConvert};
 use crate::message::Msg;
 
 mod client_mux;
@@ -54,19 +54,19 @@ async fn connect(host: &str, target_name: &str, mut rc4: Rc4) -> Result<()> {
     let (rx, mut tx) = match TcpStream::connect(host).await {
       Ok(socket) => socket.into_split(),
       Err(e) => {
-        eprintln!("{:?}", e);
+        error!("{}", e);
         continue;
       }
     };
 
-    println!("{} connected", target_name);
+    info!("{} connected", target_name);
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(300);
 
     tokio::spawn(async move {
       while let Some(msg) = mpsc_rx.recv().await {
         if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
-          eprintln!("{:?}", e);
+          error!("{}", e);
           return;
         }
       };
@@ -74,14 +74,17 @@ async fn connect(host: &str, target_name: &str, mut rc4: Rc4) -> Result<()> {
 
     let cmc = Arc::new(ClientMuxChannel::new(mpsc_tx));
 
-    CONNECTION_POOL.lock().unwrap().put(channel_id.clone(), cmc.clone());
+    CONNECTION_POOL.lock().std_res_convert(|e| e.to_string())?
+      .put(channel_id.clone(), cmc.clone());
 
     if let Err(e) = cmc.recv_process(rx, rc4).await {
-      eprintln!("{:?}", e);
+      error!("{}", e);
     }
 
-    let _ = CONNECTION_POOL.lock().unwrap().remove(&channel_id);
-    eprintln!("{} disconnected", target_name);
+    let _ = CONNECTION_POOL.lock().std_res_convert(|e| e.to_string())?
+      .remove(&channel_id);
+
+    error!("{} disconnected", target_name);
   }
 }
 
