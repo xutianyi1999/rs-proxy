@@ -3,13 +3,13 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{Error, ErrorKind, Result};
+use tokio::io::Result;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
 
-use crate::commons::{Address, MsgReadHandler, MsgWriteHandler};
+use crate::commons::{Address, MsgReadHandler, MsgWriteHandler, StdResConvert};
 use crate::message::Msg;
 
 type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
@@ -113,8 +113,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
       }
     }
 
-    if let Err(e) = mpsc_tx.send(Msg::DATA(channel_id.clone(), buff.freeze())).await {
-      return Err(Error::new(ErrorKind::Other, e.to_string()));
-    }
+    mpsc_tx.send(Msg::DATA(channel_id.clone(), buff.freeze())).await
+      .std_res_convert(|e| e.to_string())?;
   };
 }

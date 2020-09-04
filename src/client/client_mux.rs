@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::Mutex;
 
 use crate::commons;
-use crate::commons::{Address, MsgReadHandler};
+use crate::commons::{Address, MsgReadHandler, StdResConvert};
 use crate::message::Msg;
 
 type DB = DashMap<String, UnboundedSender<Bytes>>;
@@ -53,16 +53,16 @@ impl ClientMuxChannel {
 
   pub async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {
     let is_close_lock_guard = self.is_close.lock().await;
-    if **is_close_lock_guard == false {
+    if **is_close_lock_guard == true {
       return Err(Error::new(ErrorKind::Other, "Is closed"));
     }
 
     let channel_id = commons::create_channel_id();
     let mut tx = self.tx.clone();
 
-    if let Err(e) = tx.send(Msg::CONNECT(channel_id.clone(), addr)).await {
-      return Err(Error::new(ErrorKind::Other, e.to_string()));
-    }
+    tx.send(Msg::CONNECT(channel_id.clone(), addr)).await
+      .std_res_convert(|e| e.to_string())?;
+
     self.db.insert(channel_id.clone(), mpsc_tx);
 
     let p2p_channel = P2pChannel { tx, mux_channel: self, channel_id };
@@ -71,9 +71,8 @@ impl ClientMuxChannel {
 
   async fn remove(&self, channel_id: &String, tx: &mut Sender<Msg>) -> Result<()> {
     if let Some(_) = self.db.remove(channel_id) {
-      if let Err(e) = tx.send(Msg::DISCONNECT(channel_id.clone())).await {
-        return Err(Error::new(ErrorKind::Other, e.to_string()));
-      }
+      tx.send(Msg::DISCONNECT(channel_id.clone())).await
+        .std_res_convert(|e| e.to_string())?;
     }
     Ok(())
   }
@@ -87,10 +86,8 @@ pub struct P2pChannel<'a> {
 
 impl P2pChannel<'_> {
   pub async fn write(&mut self, data: Bytes) -> Result<()> {
-    if let Err(e) = self.tx.send(Msg::DATA(self.channel_id.clone(), data)).await {
-      return Err(Error::new(ErrorKind::Other, e.to_string()));
-    };
-    Ok(())
+    self.tx.send(Msg::DATA(self.channel_id.clone(), data)).await
+      .std_res_convert(|e| e.to_string())
   }
 
   pub async fn close(&mut self) -> Result<()> {

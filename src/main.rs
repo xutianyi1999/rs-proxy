@@ -27,7 +27,7 @@ pub const CONFIG_ERROR: &str = "Config error";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  logger_init();
+  logger_init()?;
 
   if let Err(e) = process().await {
     error!("{}", e);
@@ -63,7 +63,7 @@ async fn process() -> Result<()> {
   }
 }
 
-fn logger_init() {
+fn logger_init() -> Result<()> {
   let stdout = ConsoleAppender::builder()
     .encoder(Box::new(PatternEncoder::new("[Console] {d} - {l} -{t} - {m}{n}")))
     .build();
@@ -71,7 +71,8 @@ fn logger_init() {
   let config = Config::builder()
     .appender(Appender::builder().build("stdout", Box::new(stdout)))
     .build(Root::builder().appender("stdout").build(LevelFilter::Info))
-    .unwrap();
+    .std_res_convert(|e| e.to_string())?;
 
-  log4rs::init_config(config).unwrap();
+  log4rs::init_config(config).std_res_convert(|e| e.to_string())?;
+  Ok(())
 }

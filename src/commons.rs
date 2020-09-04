@@ -59,16 +59,14 @@ fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> 
   let mut out = vec![0u8; input.len()];
   let mut ref_write_buf = RefWriteBuffer::new(&mut out);
 
-  let _ = match mode {
+  match mode {
     MODE::DECRYPT => {
-      if let Err(_) = rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
-        return Err(Error::new(ErrorKind::Other, "Decrypt error"));
-      }
+      rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false)
+        .std_res_convert(|_| "Decrypt error".to_string())?;
     }
     MODE::ENCRYPT => {
-      if let Err(_) = rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
-        return Err(Error::new(ErrorKind::Other, "Encrypt error"));
-      }
+      rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false)
+        .std_res_convert(|_| "Encrypt error".to_string())?;
     }
   };
   Ok(out)

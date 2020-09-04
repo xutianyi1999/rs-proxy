@@ -55,7 +55,9 @@ async fn process(mut socket: TcpStream) -> Result<()> {
         break Ok(());
       },
       Err(e) => {
-        p2p_channel.close().await?;
+        if let Err(e) = p2p_channel.close().await {
+          error!("{}", e);
+        }
         break Err(e);
       }
     }
