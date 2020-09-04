@@ -4,7 +4,7 @@ use tokio::io::Error;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::prelude::*;
 
-use crate::commons::{Address, std_res_convert};
+use crate::commons::{Address, StdResConvert};
 
 const CONNECT: u8 = 0x00;
 const DISCONNECT: u8 = 0x01;
@@ -55,14 +55,14 @@ pub fn decode(mut msg: Bytes) -> Result<Msg> {
   let mode = msg.get_u8();
   let mut str = vec![0u8; 4];
   msg.copy_to_slice(&mut str);
-  let channel_id = std_res_convert(String::from_utf8(str), |e| e.to_string())?;
+  let channel_id = String::from_utf8(str).std_res_convert(|e| e.to_string())?;
 
   let msg = match mode {
     CONNECT => {
       let mut host = vec![0u8; msg.len() - 2];
       msg.copy_to_slice(&mut host);
       let port = msg.get_u16();
-      Msg::CONNECT(channel_id, (std_res_convert(String::from_utf8(host), |e| e.to_string())?, port))
+      Msg::CONNECT(channel_id, (String::from_utf8(host).std_res_convert(|e| e.to_string())?, port))
     }
     DISCONNECT => Msg::DISCONNECT(channel_id),
     DATA => Msg::DATA(channel_id, msg),

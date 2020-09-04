@@ -16,17 +16,17 @@ type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
 
 pub async fn start(host: &str, key: &str) -> Result<()> {
   let mut listener = TcpListener::bind(host).await?;
-  println!("bind {:?}", listener.local_addr()?);
+  info!("Server bind {:?}", listener.local_addr()?);
+
+  let rc4 = Rc4::new(key.as_bytes());
 
   while let Ok((socket, addr)) = listener.accept().await {
-    let key = key.to_string();
-
     tokio::spawn(async move {
-      println!("{:?} connected", addr);
+      info!("{:?} connected", addr);
       let db: DB = Arc::new(DashMap::new());
 
-      if let Err(e) = process(socket, &db, key).await {
-        eprintln!("{:?}", e);
+      if let Err(e) = process(socket, &db, rc4).await {
+        error!("{}", e);
       };
 
       db.clear()
@@ -35,23 +35,19 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   Ok(())
 }
 
-async fn process(socket: TcpStream, db: &DB, key: String) -> Result<()> {
+async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4) -> Result<()> {
   let (mut rx, mut tx) = socket.into_split();
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(200);
 
-  let k = key.clone();
   tokio::spawn(async move {
-    let mut rc4 = Rc4::new(k.as_bytes());
-
     while let Some(msg) = mpsc_rx.recv().await {
       if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
-        eprintln!("{:?}", e);
+        error!("{}", e);
         return;
       }
     };
   });
 
-  let mut rc4 = Rc4::new(key.as_bytes());
   loop {
     let msg = rx.read_msg(&mut rc4).await?;
 
@@ -65,12 +61,12 @@ async fn process(socket: TcpStream, db: &DB, key: String) -> Result<()> {
 
         tokio::spawn(async move {
           if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
-            eprintln!("{:?}", e);
+            error!("{}", e);
           }
 
           if let Some(_) = db.remove(&channel_id) {
             if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
-              eprintln!("Send disconnect msg error");
+              error!("Send disconnect msg error");
             }
           }
         });
@@ -81,7 +77,7 @@ async fn process(socket: TcpStream, db: &DB, key: String) -> Result<()> {
       Msg::DATA(channel_id, data) => {
         if let Some(tx) = db.get(&channel_id) {
           if let Err(_) = tx.send(data) {
-            eprintln!("Send msg to child TX error");
+            error!("Send msg to child TX failed");
           }
         }
       }
@@ -99,7 +95,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   tokio::spawn(async move {
     while let Some(data) = mpsc_rx.recv().await {
       if let Err(e) = tx.write_all(&data).await {
-        eprintln!("{:?}", e);
+        error!("{}", e);
         return;
       }
     };

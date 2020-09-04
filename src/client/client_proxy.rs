@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::client;
 use crate::client::socks5;
-use crate::commons::Address;
+use crate::commons::{Address, StdResConvert};
 
 pub async fn bind(host: &str) -> Result<()> {
   let mut tcp_listener = TcpListener::bind(host).await?;
@@ -14,7 +14,7 @@ pub async fn bind(host: &str) -> Result<()> {
   while let Ok((socket, _)) = tcp_listener.accept().await {
     tokio::spawn(async move {
       if let Err(e) = process(socket).await {
-        eprintln!("{:?}", e);
+        error!("{}", e);
       };
     });
   };
@@ -25,7 +25,8 @@ async fn process(mut socket: TcpStream) -> Result<()> {
   let address = socks5_decode(&mut socket).await?;
   let (mut rx, mut tx) = socket.into_split();
 
-  let res = client::CONNECTION_POOL.lock().unwrap().get();
+  let res = client::CONNECTION_POOL.lock()
+    .std_res_convert(|e| e.to_string())?.get();
 
   let client_mux_channel = match res {
     Some(channel) => channel,
@@ -37,7 +38,7 @@ async fn process(mut socket: TcpStream) -> Result<()> {
   tokio::spawn(async move {
     while let Some(data) = mpsc_rx.recv().await {
       if let Err(e) = tx.write_all(&data).await {
-        eprintln!("{:?}", e);
+        error!("{}", e);
         return;
       }
     };

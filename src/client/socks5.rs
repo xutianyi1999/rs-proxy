@@ -5,7 +5,7 @@ use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
-use crate::commons::Address;
+use crate::commons::{Address, StdResConvert};
 
 const SOCKS5_VERSION: u8 = 0x05;
 const NO_AUTH: u8 = 0x00;
@@ -23,10 +23,7 @@ pub async fn initial_request(socket: &mut TcpStream) -> Result<()> {
     return Err(Error::new(ErrorKind::Other, "INVALID PROTOCOL VERSION"));
   }
 
-  let mut discard = vec![0u8; buffer[1] as usize];
-  socket.read_exact(&mut discard).await?;
-  drop(discard);
-
+  socket.read_exact(&mut vec![0u8; buffer[1] as usize]).await?;
   socket.write_all(&[SOCKS5_VERSION, NO_AUTH]).await?;
   Ok(())
 }
@@ -73,7 +70,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer: Vec<u8> = vec![0u8; len + 2];
       socket.read_exact(&mut buffer).await?;
 
-      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).unwrap();
+      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).std_res_convert(|e| e.to_string())?;
       let port: [u8; 2] = buffer[len..].try_into().unwrap();
 
       (domain_name, u16::from_be_bytes(port))

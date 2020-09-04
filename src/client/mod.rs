@@ -9,8 +9,8 @@ use yaml_rust::yaml::Array;
 
 use client_mux::ClientMuxChannel;
 
-use crate::commons;
-use crate::commons::MsgWriteHandler;
+use crate::{commons, CONFIG_ERROR};
+use crate::commons::{MsgWriteHandler, OptionConvert};
 use crate::message::Msg;
 
 mod client_mux;
@@ -23,23 +23,23 @@ lazy_static! {
 
 pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
   for host in host_list {
-    let target_name = host["name"].as_str().unwrap();
-    let count = host["connections"].as_i64().unwrap();
-    let addr = host["host"].as_str().unwrap();
-    let key = host["key"].as_str().unwrap();
+    let target_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
+    let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
+    let addr = host["host"].as_str().option_to_res(CONFIG_ERROR)?;
+    let key = host["key"].as_str().option_to_res(CONFIG_ERROR)?;
+    let rc4 = Rc4::new(key.as_bytes());
 
     for i in 0..count {
       let target_name = target_name.to_string();
       let addr = addr.to_string();
-      let key = key.to_string();
 
       tokio::spawn(async move {
         let target_name = format!("{}-{}", target_name, i);
 
-        if let Err(e) = connect(&addr, &target_name, key).await {
-          eprintln!("{:?}", e);
+        if let Err(e) = connect(&addr, &target_name, rc4).await {
+          error!("{}", e);
         }
-        eprintln!("{} crashed", target_name);
+        error!("{} crashed", target_name);
       });
     }
   }
@@ -47,7 +47,7 @@ pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
   client_proxy::bind(bind_addr).await
 }
 
-async fn connect(host: &str, target_name: &str, key: String) -> Result<()> {
+async fn connect(host: &str, target_name: &str, mut rc4: Rc4) -> Result<()> {
   let channel_id = commons::create_channel_id();
 
   loop {
@@ -63,10 +63,7 @@ async fn connect(host: &str, target_name: &str, key: String) -> Result<()> {
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(300);
 
-    let k = key.clone();
     tokio::spawn(async move {
-      let mut rc4 = Rc4::new(k.as_bytes());
-
       while let Some(msg) = mpsc_rx.recv().await {
         if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
           eprintln!("{:?}", e);
@@ -79,7 +76,7 @@ async fn connect(host: &str, target_name: &str, key: String) -> Result<()> {
 
     CONNECTION_POOL.lock().unwrap().put(channel_id.clone(), cmc.clone());
 
-    if let Err(e) = cmc.recv_process(rx, &key).await {
+    if let Err(e) = cmc.recv_process(rx, rc4).await {
       eprintln!("{:?}", e);
     }
 

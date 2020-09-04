@@ -62,26 +62,46 @@ fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> 
   let _ = match mode {
     MODE::DECRYPT => {
       if let Err(_) = rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
-        return Err(Error::new(ErrorKind::Other, "decrypt error"));
+        return Err(Error::new(ErrorKind::Other, "Decrypt error"));
       }
     }
     MODE::ENCRYPT => {
       if let Err(_) = rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false) {
-        return Err(Error::new(ErrorKind::Other, "encrypt error"));
+        return Err(Error::new(ErrorKind::Other, "Encrypt error"));
       }
     }
   };
   Ok(out)
 }
 
-pub fn option_convert<T>(o: Option<T>, msg: &str) -> Result<T> {
+pub trait OptionConvert<T> {
+  fn option_to_res(self, msg: &str) -> Result<T>;
+}
+
+impl<T> OptionConvert<T> for Option<T> {
+  fn option_to_res(self, msg: &str) -> Result<T> {
+    option_convert(self, msg)
+  }
+}
+
+pub trait StdResConvert<T, E> {
+  fn std_res_convert(self, f: fn(E) -> String) -> Result<T>;
+}
+
+impl<T, E> StdResConvert<T, E> for std::result::Result<T, E> {
+  fn std_res_convert(self, f: fn(E) -> String) -> Result<T> {
+    std_res_convert(self, f)
+  }
+}
+
+fn option_convert<T>(o: Option<T>, msg: &str) -> Result<T> {
   match o {
     Some(v) => Ok(v),
     None => Err(Error::new(ErrorKind::Other, msg))
   }
 }
 
-pub fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> Result<T> {
+fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> Result<T> {
   match res {
     Ok(v) => Ok(v),
     Err(e) => {

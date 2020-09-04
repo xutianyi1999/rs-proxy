@@ -1,11 +1,10 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use bytes::Bytes;
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::Mutex;
 
 use crate::commons;
 use crate::commons::{Address, MsgReadHandler};
@@ -16,17 +15,18 @@ type DB = DashMap<String, UnboundedSender<Bytes>>;
 pub struct ClientMuxChannel {
   tx: Sender<Msg>,
   db: DB,
-  is_close: AtomicBool,
+  is_close: Mutex<Box<bool>>,
 }
 
 impl ClientMuxChannel {
   pub fn new(tx: Sender<Msg>) -> ClientMuxChannel {
-    ClientMuxChannel { tx, db: DashMap::new(), is_close: AtomicBool::new(false) }
+    ClientMuxChannel { tx, db: DashMap::new(), is_close: Mutex::new(Box::new(false)) }
   }
 
-  pub async fn recv_process(&self, rx: OwnedReadHalf, key: &str) -> Result<()> {
-    let res = self.f(rx, Rc4::new(key.as_bytes())).await;
-    self.is_close.store(true, Ordering::SeqCst);
+  pub async fn recv_process(&self, rx: OwnedReadHalf, rc4: Rc4) -> Result<()> {
+    let res = self.f(rx, rc4).await;
+    let mut flag_mutex_guard = self.is_close.lock().await;
+    **flag_mutex_guard = true;
     self.db.clear();
     res
   }
@@ -39,7 +39,7 @@ impl ClientMuxChannel {
         Msg::DATA(channel_id, data) => {
           if let Some(tx) = self.db.get(&channel_id) {
             if let Err(_) = tx.send(data) {
-              eprintln!("Send msg to local TX error");
+              error!("Send msg to local TX error")
             }
           }
         }
@@ -52,8 +52,9 @@ impl ClientMuxChannel {
   }
 
   pub async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {
-    if self.is_close.load(Ordering::SeqCst) == true {
-      return Err(Error::new(ErrorKind::Other, "Is closed"))
+    let is_close_lock_guard = self.is_close.lock().await;
+    if **is_close_lock_guard == false {
+      return Err(Error::new(ErrorKind::Other, "Is closed"));
     }
 
     let channel_id = commons::create_channel_id();
