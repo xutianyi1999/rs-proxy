@@ -73,3 +73,20 @@ fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> 
   };
   Ok(out)
 }
+
+pub fn option_convert<T>(o: Option<T>, msg: &str) -> Result<T> {
+  match o {
+    Some(v) => Ok(v),
+    None => Err(Error::new(ErrorKind::Other, msg))
+  }
+}
+
+pub fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> Result<T> {
+  match res {
+    Ok(v) => Ok(v),
+    Err(e) => {
+      let msg = f(e);
+      Err(Error::new(ErrorKind::Other, msg))
+    }
+  }
+}
