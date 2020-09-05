@@ -2,7 +2,7 @@
 socks5代理
 
 ## Config
-### Server
+### server
 ```yaml
 ---
 # 本机地址
@@ -11,7 +11,7 @@ host: 0.0.0.0:12345
 key: "123a"
 
 ```
-### Client
+### client
 ```yaml
 ---
 # 本地socks5绑定地址
@@ -38,7 +38,7 @@ remote:
 ./rs-proxy client client-config.yaml
 ```
 
-## Compile project
+## Build project
 ```shell script
 cargo build --release
 ```
