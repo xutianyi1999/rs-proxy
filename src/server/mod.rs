@@ -65,8 +65,8 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4) -> Result<()> {
           }
 
           if let Some(_) = db.remove(&channel_id) {
-            if let Err(_) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
-              error!("Send disconnect msg error");
+            if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
+              error!("{}", e.to_string());
             }
           }
         });
@@ -76,8 +76,8 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4) -> Result<()> {
       }
       Msg::DATA(channel_id, data) => {
         if let Some(tx) = db.get(&channel_id) {
-          if let Err(_) = tx.send(data) {
-            error!("Send msg to child TX failed");
+          if let Err(e) = tx.send(data) {
+            error!("{}", e.to_string())
           }
         }
       }

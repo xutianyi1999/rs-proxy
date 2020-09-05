@@ -38,8 +38,8 @@ impl ClientMuxChannel {
       match msg {
         Msg::DATA(channel_id, data) => {
           if let Some(tx) = self.db.get(&channel_id) {
-            if let Err(_) = tx.send(data) {
-              error!("Send msg to local TX error")
+            if let Err(e) = tx.send(data) {
+              error!("{}", e.to_string())
             }
           }
         }
