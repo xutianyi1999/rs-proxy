@@ -14,7 +14,7 @@ use crate::message::Msg;
 
 type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
 
-pub async fn start(host: &str, key: &str) -> Result<()> {
+pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let mut listener = TcpListener::bind(host).await?;
   info!("Server bind {:?}", listener.local_addr()?);
 
@@ -25,7 +25,7 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
       info!("{:?} connected", addr);
       let db: DB = Arc::new(DashMap::new());
 
-      if let Err(e) = process(socket, &db, rc4).await {
+      if let Err(e) = process(socket, &db, rc4, buff_size).await {
         error!("{}", e);
       };
 
@@ -35,9 +35,9 @@ pub async fn start(host: &str, key: &str) -> Result<()> {
   Ok(())
 }
 
-async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4) -> Result<()> {
+async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
   let (mut rx, mut tx) = socket.into_split();
-  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(200);
+  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
 
   tokio::spawn(async move {
     while let Some(msg) = mpsc_rx.recv().await {

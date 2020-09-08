@@ -21,7 +21,7 @@ lazy_static! {
   static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
 }
 
-pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
+pub async fn start(bind_addr: &str, host_list: &Array, buff_size: usize) -> Result<()> {
   for host in host_list {
     let target_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
     let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
@@ -36,7 +36,7 @@ pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
       tokio::spawn(async move {
         let target_name = format!("{}-{}", target_name, i);
 
-        if let Err(e) = connect(&addr, &target_name, rc4).await {
+        if let Err(e) = connect(&addr, &target_name, rc4, buff_size).await {
           error!("{}", e);
         }
         error!("{} crashed", target_name);
@@ -47,7 +47,7 @@ pub async fn start(bind_addr: &str, host_list: &Array) -> Result<()> {
   client_proxy::bind(bind_addr).await
 }
 
-async fn connect(host: &str, target_name: &str, mut rc4: Rc4) -> Result<()> {
+async fn connect(host: &str, target_name: &str, mut rc4: Rc4, buff_size: usize) -> Result<()> {
   let channel_id = commons::create_channel_id();
 
   loop {
@@ -61,7 +61,7 @@ async fn connect(host: &str, target_name: &str, mut rc4: Rc4) -> Result<()> {
 
     info!("{} connected", target_name);
 
-    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(300);
+    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
 
     tokio::spawn(async move {
       while let Some(msg) = mpsc_rx.recv().await {

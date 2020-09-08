@@ -46,18 +46,19 @@ async fn process() -> Result<()> {
   let config = YamlLoader::load_from_str(&config).std_res_convert(|e| e.to_string())?;
   let config = &config[0];
 
+  let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
+  let buff_size = config["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
+
   match mode.as_str() {
     "client" => {
-      let bind_addr = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
       let host_list = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
 
-      client::start(bind_addr, host_list).await
+      client::start(host, host_list, buff_size as usize).await
     }
     "server" => {
-      let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
       let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
 
-      server::start(host, key).await
+      server::start(host, key, buff_size as usize).await
     }
     _ => Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
   }

@@ -9,13 +9,16 @@ socks5代理
 host: 0.0.0.0:12345
 # 密钥
 key: "123a"
-
+# 缓冲队列容量
+buff_size: 1000
 ```
 ### client
 ```yaml
 ---
 # 本地socks5绑定地址
 host: 0.0.0.0:12333
+# 缓冲队列容量
+buff_size: 1000
 # 服务端地址 (多个)
 remote:
     # 名称
@@ -26,7 +29,6 @@ remote:
     host: 127.0.0.1:12345
     # 密钥
     key: "123a"
-
 ```
 ## Usage
 ### server
