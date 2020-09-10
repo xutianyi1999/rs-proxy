@@ -4,7 +4,7 @@ use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
 use nanoid;
-use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
+use tokio::io::{AsyncWriteExt, BufReader, Error, ErrorKind, Result};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 use crate::message;
@@ -41,7 +41,7 @@ pub trait MsgReadHandler {
 }
 
 #[async_trait]
-impl MsgReadHandler for OwnedReadHalf {
+impl MsgReadHandler for BufReader<OwnedReadHalf> {
   async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg> {
     let data = message::read_msg(self).await?;
     let data = crypto(&data, rc4, MODE::DECRYPT)?;

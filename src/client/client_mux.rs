@@ -1,7 +1,7 @@
 use bytes::Bytes;
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{Error, ErrorKind, Result};
+use tokio::io::{BufReader, Error, ErrorKind, Result};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio::sync::Mutex;
@@ -31,7 +31,9 @@ impl ClientMuxChannel {
     res
   }
 
-  async fn f(&self, mut rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
+  async fn f(&self, rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
+    let mut rx = BufReader::with_capacity(65535 * 10, rx);
+
     loop {
       let msg = rx.read_msg(&mut rc4).await?;
 

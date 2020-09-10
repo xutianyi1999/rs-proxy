@@ -1,5 +1,5 @@
 use bytes::{Buf, BufMut, Bytes, BytesMut};
-use tokio::io::{ErrorKind, Result};
+use tokio::io::{BufReader, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::prelude::*;
@@ -71,7 +71,7 @@ pub fn decode(mut msg: Bytes) -> Result<Msg> {
   Ok(msg)
 }
 
-pub async fn read_msg(rx: &mut OwnedReadHalf) -> Result<Bytes> {
+pub async fn read_msg(rx: &mut BufReader<OwnedReadHalf>) -> Result<Bytes> {
   let len = rx.read_u16().await?;
   let mut msg = vec![0u8; len as usize];
   rx.read_exact(&mut msg).await?;

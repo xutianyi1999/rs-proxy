@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::Result;
+use tokio::io::{BufReader, Result};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
@@ -36,7 +36,9 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  let (mut rx, mut tx) = socket.into_split();
+  let (rx, mut tx) = socket.into_split();
+  let mut rx = BufReader::with_capacity(65535 * 10, rx);
+
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
 
   tokio::spawn(async move {
