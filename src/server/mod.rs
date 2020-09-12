@@ -8,6 +8,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
+use tokio::time::Duration;
 
 use crate::commons::{Address, MsgReadHandler, MsgWriteHandler, StdResConvert};
 use crate::message::Msg;
@@ -24,6 +25,10 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
     tokio::spawn(async move {
       info!("{:?} connected", addr);
       let db: DB = Arc::new(DashMap::new());
+
+      if let Err(e) = socket.set_keepalive(Option::Some(Duration::from_secs(120))) {
+        error!("{}", e);
+      }
 
       if let Err(e) = process(socket, &db, rc4, buff_size).await {
         error!("{}", e);
