@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
 use bytes::{Bytes, BytesMut};
@@ -6,6 +7,7 @@ use crypto::rc4::Rc4;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
 use crate::{commons, CONFIG_ERROR};
@@ -25,14 +27,25 @@ lazy_static! {
 
 enum Channel {
   Tcp(Arc<TcpMuxChannel>),
-  Quic(Arc<QuicChannel>),
+  Quic(QuicChannel),
 }
 
-pub async fn start(bind_addr: &str) -> Result<()> {
+pub async fn start(bind_addr: &str, remote_hosts: &Array, buff_size: usize) -> Result<()> {
+  let tcp_list: Vec<&Yaml> = remote_hosts.iter()
+    .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
+    .collect();
+
+  tcp_client::start(tcp_list, buff_size)?;
+
+  let quic_list: Vec<&Yaml> = remote_hosts.iter()
+    .filter(|e| e["protocol"].as_str().unwrap().eq("quic"))
+    .collect();
+
+  quic_client::start(bind_addr, quic_list).await?;
   socks5_server_bind(bind_addr).await
 }
 
-pub async fn socks5_server_bind(host: &str) -> Result<()> {
+async fn socks5_server_bind(host: &str) -> Result<()> {
   let mut tcp_listener = TcpListener::bind(host).await?;
 
   info!("Client bind {}", tcp_listener.local_addr()?);

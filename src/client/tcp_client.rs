@@ -9,6 +9,7 @@ use tokio::net::tcp::OwnedReadHalf;
 use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
+use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
 use crate::client::{Channel, CONNECTION_POOL};
@@ -17,7 +18,7 @@ use crate::commons::{Address, OptionConvert, StdResAutoConvert, StdResConvert, t
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 use crate::CONFIG_ERROR;
 
-pub fn start(host_list: &Array, buff_size: usize) -> Result<()> {
+pub fn start(host_list: Vec<&Yaml>, buff_size: usize) -> Result<()> {
   for host in host_list {
     let server_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
     let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;

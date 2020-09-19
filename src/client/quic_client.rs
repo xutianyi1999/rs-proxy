@@ -12,30 +12,43 @@ use tokio::net::TcpStream;
 use tokio::prelude::*;
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
+use yaml_rust::Yaml;
 
-use crate::commons::{Address, quic_config, StdResAutoConvert, StdResConvert};
+use crate::commons::{Address, OptionConvert, quic_config, StdResAutoConvert, StdResConvert};
+use crate::CONFIG_ERROR;
 
-pub async fn start(cert_paths: Vec<String>, local_addr: &str, remote_addr: &str, server_name: &str) -> Result<()> {
+pub async fn start(local_addr: &str, host_list: Vec<&Yaml>) -> Result<()> {
+  let cert_paths = host_list.iter()
+    .map(|e| e["cert"].as_str().unwrap().to_string())
+    .collect();
+
   let client_config = quic_config::configure_client(cert_paths).await?;
   let mut builder = Endpoint::builder();
   builder.default_client_config(client_config);
 
   let (endpoint, _) = builder.bind(&local_addr.parse().res_auto_convert()?)
-    .res_convert(|e| "Udp client bind error".to_string())?;
+    .res_convert(|_| "Udp client bind error".to_string())?;
 
-
+  let endpoint = Arc::new(endpoint);
+  for host in host_list {
+    QuicChannel::new(
+      endpoint.clone(),
+      host["host"].as_str().option_to_res(CONFIG_ERROR)?.parse().res_auto_convert()?,
+      host["server_name"].as_str().option_to_res(CONFIG_ERROR)?.to_string(),
+    );
+  };
   Ok(())
 }
 
 pub struct QuicChannel {
-  endpoint: Endpoint,
+  endpoint: Arc<Endpoint>,
   remote_addr: SocketAddr,
   server_name: String,
   conn: Arc<RwLock<Option<Connection>>>,
 }
 
 impl QuicChannel {
-  fn new(endpoint: Endpoint, remote_addr: SocketAddr, server_name: String) -> QuicChannel {
+  fn new(endpoint: Arc<Endpoint>, remote_addr: SocketAddr, server_name: String) -> QuicChannel {
     QuicChannel {
       endpoint,
       remote_addr,
@@ -87,7 +100,6 @@ impl QuicChannel {
         _ = f1 => (),
         _ = f2 => ()
       }
-      ;
       Ok(())
     } else {
       Err(Error::new(ErrorKind::Other, "Open bi error"))

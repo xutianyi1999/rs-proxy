@@ -65,6 +65,5 @@ async fn child_process(rxtx: (SendStream, RecvStream)) -> Result<()> {
     _ = f1 => (),
     _ = f2 => ()
   }
-  ;
   Ok(())
 }

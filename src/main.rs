@@ -51,7 +51,6 @@ async fn process() -> Result<()> {
   match mode.as_str() {
     "client" => {
       let host_list = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
-
       // client::start(host, host_list, buff_size as usize).await
     }
     "server" => {
