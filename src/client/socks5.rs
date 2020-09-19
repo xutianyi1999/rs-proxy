@@ -5,7 +5,7 @@ use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
-use crate::commons::{Address, StdResConvert};
+use crate::commons::{Address, StdResAutoConvert, StdResConvert};
 
 const SOCKS5_VERSION: u8 = 0x05;
 const NO_AUTH: u8 = 0x00;
@@ -70,7 +70,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer: Vec<u8> = vec![0u8; len + 2];
       socket.read_exact(&mut buffer).await?;
 
-      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).std_res_convert(|e| e.to_string())?;
+      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).res_auto_convert()?;
       let port: [u8; 2] = buffer[len..].try_into().unwrap();
 
       (domain_name, u16::from_be_bytes(port))

@@ -1,107 +1,91 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
-use tokio::io::Result;
-use tokio::net::TcpStream;
+use tokio::io::{AsyncReadExt, AsyncWriteExt, Error, ErrorKind, Result};
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use yaml_rust::yaml::Array;
 
-use client_mux::ClientMuxChannel;
-
 use crate::{commons, CONFIG_ERROR};
-use crate::commons::{MsgWriteHandler, OptionConvert, StdResConvert};
-use crate::message::Msg;
+use crate::client::Channel::Tcp;
+use crate::client::quic_client::QuicChannel;
+use crate::client::tcp_client::TcpMuxChannel;
+use crate::commons::{Address, OptionConvert, StdResAutoConvert, StdResConvert};
+use crate::commons::tcp_mux::{Msg, MsgWriteHandler};
 
-mod client_mux;
-mod client_proxy;
+mod tcp_client;
 mod socks5;
+mod quic_client;
 
 lazy_static! {
-  static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
+  static ref CONNECTION_POOL: Mutex<ConnectionPool<Channel>> = Mutex::new(ConnectionPool::new());
 }
 
-pub async fn start(bind_addr: &str, host_list: &Array, buff_size: usize) -> Result<()> {
-  for host in host_list {
-    let target_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
-    let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
-    let addr = host["host"].as_str().option_to_res(CONFIG_ERROR)?;
-    let key = host["key"].as_str().option_to_res(CONFIG_ERROR)?;
-    let rc4 = Rc4::new(key.as_bytes());
-
-    for i in 0..count {
-      let target_name = target_name.to_string();
-      let addr = addr.to_string();
-
-      tokio::spawn(async move {
-        let target_name = format!("{}-{}", target_name, i);
-
-        if let Err(e) = connect(&addr, &target_name, rc4, buff_size).await {
-          error!("{}", e);
-        }
-        error!("{} crashed", target_name);
-      });
-    }
-  }
-
-  client_proxy::bind(bind_addr).await
+enum Channel {
+  Tcp(Arc<TcpMuxChannel>),
+  Quic(Arc<QuicChannel>),
 }
 
-async fn connect(host: &str, target_name: &str, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  let channel_id = commons::create_channel_id();
+pub async fn start(bind_addr: &str) -> Result<()> {
+  socks5_server_bind(bind_addr).await
+}
 
-  loop {
-    let (rx, mut tx) = match TcpStream::connect(host).await {
-      Ok(socket) => socket.into_split(),
-      Err(e) => {
-        error!("{}", e);
-        continue;
-      }
-    };
+pub async fn socks5_server_bind(host: &str) -> Result<()> {
+  let mut tcp_listener = TcpListener::bind(host).await?;
 
-    info!("{} connected", target_name);
+  info!("Client bind {}", tcp_listener.local_addr()?);
 
-    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
-
+  while let Ok((socket, _)) = tcp_listener.accept().await {
     tokio::spawn(async move {
-      while let Some(msg) = mpsc_rx.recv().await {
-        if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
-          error!("{}", e);
-          return;
-        }
+      if let Err(e) = process(socket).await {
+        error!("{}", e);
       };
     });
+  };
+  Ok(())
+}
 
-    let cmc = Arc::new(ClientMuxChannel::new(mpsc_tx));
+async fn process(mut socket: TcpStream) -> Result<()> {
+  let address = socks5_decode(&mut socket).await?;
+  let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
 
-    CONNECTION_POOL.lock().std_res_convert(|e| e.to_string())?
-      .put(channel_id.clone(), cmc.clone());
+  let channel = match opt {
+    Some(channel) => channel,
+    None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
+  };
 
-    if let Err(e) = cmc.recv_process(rx, rc4).await {
-      error!("{}", e);
+  match &*channel {
+    Channel::Tcp(tcp_mux_channel) => {
+      tcp_mux_channel.exec_local_inbound_handler(socket, address).await
     }
-
-    let _ = CONNECTION_POOL.lock().std_res_convert(|e| e.to_string())?
-      .remove(&channel_id);
-
-    error!("{} disconnected", target_name);
+    Channel::Quic(quic_channel) => {
+      quic_channel.open_bi(socket, address).await
+    }
   }
 }
 
-pub struct ConnectionPool {
-  db: HashMap<String, Arc<ClientMuxChannel>>,
+async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
+  socks5::initial_request(socket).await?;
+  let addr = socks5::command_request(socket).await?;
+  Ok(addr)
+}
+
+pub struct ConnectionPool<T> {
+  db: HashMap<String, Arc<T>>,
   keys: Vec<String>,
   count: usize,
 }
 
-impl ConnectionPool {
-  pub fn new() -> ConnectionPool {
+impl<T> ConnectionPool<T> {
+  pub fn new() -> ConnectionPool<T> {
     ConnectionPool { db: HashMap::new(), keys: Vec::new(), count: 0 }
   }
 
-  pub fn put(&mut self, k: String, v: Arc<ClientMuxChannel>) {
+  pub fn put(&mut self, k: String, v: T) {
     self.keys.push(k.clone());
-    self.db.insert(k, v);
+    self.db.insert(k, Arc::new(v));
   }
 
   pub fn remove(&mut self, key: &str) -> Result<()> {
@@ -112,7 +96,7 @@ impl ConnectionPool {
     Ok(())
   }
 
-  pub fn get(&mut self) -> Option<Arc<ClientMuxChannel>> {
+  pub fn get(&mut self) -> Option<Arc<T>> {
     if self.keys.len() == 0 {
       return Option::None;
     } else if self.keys.len() == 1 {

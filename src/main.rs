@@ -15,12 +15,11 @@ use tokio::fs;
 use tokio::io::{Error, ErrorKind, Result};
 use yaml_rust::YamlLoader;
 
-use crate::commons::{OptionConvert, StdResConvert};
+use crate::commons::{OptionConvert, StdResAutoConvert, StdResConvert};
 
 mod client;
 mod server;
 mod commons;
-mod message;
 
 pub const COMMAND_FAILED: &str = "Command failed";
 pub const CONFIG_ERROR: &str = "Config error";
@@ -43,7 +42,7 @@ async fn process() -> Result<()> {
   let config_path = args.next().option_to_res(COMMAND_FAILED)?;
 
   let config = fs::read_to_string(config_path).await?;
-  let config = YamlLoader::load_from_str(&config).std_res_convert(|e| e.to_string())?;
+  let config = YamlLoader::load_from_str(&config).res_auto_convert()?;
   let config = &config[0];
 
   let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
@@ -53,15 +52,18 @@ async fn process() -> Result<()> {
     "client" => {
       let host_list = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
 
-      client::start(host, host_list, buff_size as usize).await
+      // client::start(host, host_list, buff_size as usize).await
     }
     "server" => {
       let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
 
-      server::start(host, key, buff_size as usize).await
+      // server::start(host, key, buff_size as usize).await
     }
-    _ => Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
-  }
+    _ => {
+      // Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
+    }
+  };
+  Ok(())
 }
 
 fn logger_init() -> Result<()> {
@@ -72,8 +74,8 @@ fn logger_init() -> Result<()> {
   let config = Config::builder()
     .appender(Appender::builder().build("stdout", Box::new(stdout)))
     .build(Root::builder().appender("stdout").build(LevelFilter::Info))
-    .std_res_convert(|e| e.to_string())?;
+    .res_auto_convert()?;
 
-  log4rs::init_config(config).std_res_convert(|e| e.to_string())?;
+  log4rs::init_config(config).res_auto_convert()?;
   Ok(())
 }
