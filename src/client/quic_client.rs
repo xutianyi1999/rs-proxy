@@ -28,6 +28,7 @@ pub async fn start(local_addr: &str, host_list: Vec<&Yaml>) -> Result<()> {
     .res_convert(|_| "Udp client bind error".to_string())?;
 
   let endpoint = Arc::new(endpoint);
+
   for host in host_list {
     let quic_channel = QuicChannel::new(
       endpoint.clone(),
@@ -83,18 +84,18 @@ impl QuicChannel {
     self.connect().await?;
 
     if let Some(conn) = &*self.conn.read().await {
-      let (mut local_rx, mut local_tx) = socket.split();
-      let (mut tx, mut rx) = conn.open_bi().await?;
+      let (mut quic_tx, mut quic_rx) = conn.open_bi().await?;
+      let (mut tcp_rx, mut tcp_tx) = socket.split();
 
       let (host, port) = remote_addr;
       let mut buff = BytesMut::new();
-      buff.put_u8(host.len() as u8);
+      buff.put_u8(host.len() as u8 + 2);
       buff.put_slice(host.as_bytes());
       buff.put_u16(port);
-      tx.write_all(&buff).await?;
+      quic_tx.write_all(&buff).await?;
 
-      let f1 = tokio::io::copy(&mut local_rx, &mut tx);
-      let f2 = tokio::io::copy(&mut rx, &mut local_tx);
+      let f1 = tokio::io::copy(&mut tcp_rx, &mut quic_tx);
+      let f2 = tokio::io::copy(&mut quic_rx, &mut tcp_tx);
 
       tokio::select! {
         _ = f1 => (),

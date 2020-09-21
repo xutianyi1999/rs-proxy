@@ -4,8 +4,8 @@ use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, Error, ErrorKind, Result};
-use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
+use tokio::net::TcpStream;
 use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
@@ -46,7 +46,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
   let channel_id = tcp_mux::create_channel_id();
 
   loop {
-    let (rx, mut tx) = match TcpStream::connect(host).await {
+    let (tcp_rx, mut tcp_tx) = match TcpStream::connect(host).await {
       Ok(socket) => socket.into_split(),
       Err(e) => {
         error!("{}", e);
@@ -69,7 +69,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
           }
         }
 
-        if let Err(e) = tx.write_msg(&msg, &mut rc4).await {
+        if let Err(e) = tcp_tx.write_msg(&msg, &mut rc4).await {
           error!("{}", e);
           return;
         }
@@ -79,7 +79,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     CONNECTION_POOL.lock().res_auto_convert()?
       .put(channel_id.clone(), Channel::Tcp(cmc.clone()));
 
-    if let Err(e) = cmc.exec_remote_inbound_handler(rx, rc4).await {
+    if let Err(e) = cmc.exec_remote_inbound_handler(tcp_rx, rc4).await {
       error!("{}", e);
     }
 
@@ -136,12 +136,12 @@ impl TcpMuxChannel {
 
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, socket: TcpStream, addr: Address) -> Result<()> {
-    let (mut rx, mut tx) = socket.into_split();
+    let (mut tcp_rx, mut tcp_tx) = socket.into_split();
     let (mpsc_tx, mut mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
 
     tokio::spawn(async move {
       while let Some(data) = mpsc_rx.recv().await {
-        if let Err(e) = tx.write_all(&data).await {
+        if let Err(e) = tcp_tx.write_all(&data).await {
           error!("{}", e);
           return;
         }
@@ -153,16 +153,16 @@ impl TcpMuxChannel {
     loop {
       let mut buff = BytesMut::with_capacity(65530);
 
-      match rx.read_buf(&mut buff).await {
+      match tcp_rx.read_buf(&mut buff).await {
         Ok(size) => if size == 0 {
           p2p_channel.close().await?;
-          break Ok(());
+          return Ok(());
         },
         Err(e) => {
           if let Err(e) = p2p_channel.close().await {
             error!("{}", e);
           }
-          break Err(e);
+          return Err(e);
         }
       }
       p2p_channel.write(buff.freeze()).await?;
