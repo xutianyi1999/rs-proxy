@@ -80,30 +80,42 @@ impl QuicChannel {
     Ok(())
   }
 
-  pub async fn open_bi(&self, mut socket: TcpStream, remote_addr: Address) -> Result<()> {
-    self.connect().await?;
+  pub async fn open_bi(&self, socket: TcpStream, remote_addr: Address) -> Result<()> {
+    let op_lock_guard = self.conn.read().await;
+    let op = &*op_lock_guard;
 
-    if let Some(conn) = &*self.conn.read().await {
-      let (mut quic_tx, mut quic_rx) = conn.open_bi().await?;
-      let (mut tcp_rx, mut tcp_tx) = socket.split();
+    if let Some(conn) = op {
+      QuicChannel::f(socket, remote_addr, conn).await
+    } else {
+      drop(op_lock_guard);
+      self.connect().await?;
 
-      let (host, port) = remote_addr;
-      let mut buff = BytesMut::new();
-      buff.put_u8(host.len() as u8 + 2);
-      buff.put_slice(host.as_bytes());
-      buff.put_u16(port);
-      quic_tx.write_all(&buff).await?;
+      if let Some(conn) = &*self.conn.read().await {
+        QuicChannel::f(socket, remote_addr, conn).await
+      } else {
+        Err(Error::new(ErrorKind::Other, "Open bi error"))
+      }
+    }
+  }
 
-      let f1 = tokio::io::copy(&mut tcp_rx, &mut quic_tx);
-      let f2 = tokio::io::copy(&mut quic_rx, &mut tcp_tx);
+  async fn f(mut socket: TcpStream, remote_addr: Address, conn: &Connection) -> Result<()> {
+    let (mut quic_tx, mut quic_rx) = conn.open_bi().await?;
+    let (mut tcp_rx, mut tcp_tx) = socket.split();
 
-      tokio::select! {
+    let (host, port) = remote_addr;
+    let mut buff = BytesMut::new();
+    buff.put_u8(host.len() as u8 + 2);
+    buff.put_slice(host.as_bytes());
+    buff.put_u16(port);
+    quic_tx.write_all(&buff).await?;
+
+    let f1 = tokio::io::copy(&mut tcp_rx, &mut quic_tx);
+    let f2 = tokio::io::copy(&mut quic_rx, &mut tcp_tx);
+
+    tokio::select! {
         _ = f1 => (),
         _ = f2 => ()
       }
-      Ok(())
-    } else {
-      Err(Error::new(ErrorKind::Other, "Open bi error"))
-    }
+    Ok(())
   }
 }
