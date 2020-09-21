@@ -129,8 +129,8 @@ impl TcpMuxChannel {
       }
     };
 
-    let mut flag_mutex_guard = self.is_close.write().await;
-    **flag_mutex_guard = true;
+    let mut flag_lock_guard = self.is_close.write().await;
+    **flag_lock_guard = true;
     self.db.clear();
     res
   }
