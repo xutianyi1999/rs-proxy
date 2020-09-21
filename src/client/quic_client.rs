@@ -81,16 +81,14 @@ impl QuicChannel {
   }
 
   pub async fn open_bi(&self, socket: TcpStream, remote_addr: Address) -> Result<()> {
-    let op_lock_guard = self.conn.read().await;
-    let op = &*op_lock_guard;
+    let op = self.conn.read().await.clone();
 
     if let Some(conn) = op {
       QuicChannel::f(socket, remote_addr, conn).await
     } else {
-      drop(op_lock_guard);
       self.connect().await?;
 
-      if let Some(conn) = &*self.conn.read().await {
+      if let Some(conn) = self.conn.read().await.clone() {
         QuicChannel::f(socket, remote_addr, conn).await
       } else {
         Err(Error::new(ErrorKind::Other, "Open bi error"))
@@ -98,7 +96,7 @@ impl QuicChannel {
     }
   }
 
-  async fn f(mut socket: TcpStream, remote_addr: Address, conn: &Connection) -> Result<()> {
+  async fn f(mut socket: TcpStream, remote_addr: Address, conn: Connection) -> Result<()> {
     let (mut quic_tx, mut quic_rx) = conn.open_bi().await?;
     let (mut tcp_rx, mut tcp_tx) = socket.split();
 
