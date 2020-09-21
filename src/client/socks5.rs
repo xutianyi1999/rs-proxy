@@ -50,8 +50,8 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer = [0u8; 6];
       socket.read_exact(&mut buffer).await?;
 
-      let addr: [u8; 4] = buffer[..4].try_into().unwrap();
-      let port: [u8; 2] = buffer[4..].try_into().unwrap();
+      let addr: [u8; 4] = buffer[..4].try_into().res_auto_convert()?;
+      let port: [u8; 2] = buffer[4..].try_into().res_auto_convert()?;
 
       (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
     }
@@ -59,8 +59,8 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       let mut buffer = [0u8; 18];
       socket.read_exact(&mut buffer).await?;
 
-      let addr: [u8; 16] = buffer[..16].try_into().unwrap();
-      let port: [u8; 2] = buffer[16..].try_into().unwrap();
+      let addr: [u8; 16] = buffer[..16].try_into().res_auto_convert()?;
+      let port: [u8; 2] = buffer[16..].try_into().res_auto_convert()?;
 
       (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
     }
@@ -71,7 +71,7 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
       socket.read_exact(&mut buffer).await?;
 
       let domain_name = String::from_utf8(Vec::from(&buffer[..len])).res_auto_convert()?;
-      let port: [u8; 2] = buffer[len..].try_into().unwrap();
+      let port: [u8; 2] = buffer[len..].try_into().res_auto_convert()?;
 
       (domain_name, u16::from_be_bytes(port))
     }

@@ -9,7 +9,7 @@ pub async fn configure_client(cert_paths: Vec<String>) -> Result<ClientConfig> {
 
   for path in cert_paths {
     let v = fs::read(path).await?;
-    let certificate = Certificate::from_der(&v).unwrap();
+    let certificate = Certificate::from_der(&v).res_auto_convert()?;
     cfg_builder.add_certificate_authority(certificate).res_auto_convert()?;
   };
 
