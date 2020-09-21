@@ -56,7 +56,7 @@ async fn process() -> Result<()> {
       server::start(config).await
     }
     _ => {
-      Err(Error::new(ErrorKind::Other, CONFIG_ERROR))
+      Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
     }
   }
 }
