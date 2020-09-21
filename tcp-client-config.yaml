@@ -1,12 +1,12 @@
 ---
 # 本地socks5绑定地址
 host: 0.0.0.0:12333
-# 缓冲队列容量
-buff_size: 1000
 # 服务端地址 (多个)
 remote:
   # 名称
   - name: local
+    # 缓冲队列容量
+    buff_size: 1000
     # 协议
     protocol: tcp
     # 连接数
