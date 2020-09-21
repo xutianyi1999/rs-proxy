@@ -4,17 +4,15 @@ use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, Error, ErrorKind, Result};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::TcpStream;
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use yaml_rust::Yaml;
-use yaml_rust::yaml::Array;
 
 use crate::client::{Channel, CONNECTION_POOL};
-use crate::client::socks5;
-use crate::commons::{Address, OptionConvert, StdResAutoConvert, StdResConvert, tcp_mux};
+use crate::commons::{Address, OptionConvert, StdResAutoConvert, tcp_mux};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 use crate::CONFIG_ERROR;
 
@@ -168,8 +166,7 @@ impl TcpMuxChannel {
         }
       }
       p2p_channel.write(buff.freeze()).await?;
-    };
-    Ok(())
+    }
   }
 
   async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {

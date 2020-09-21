@@ -1,19 +1,17 @@
-use std::borrow::{Borrow, BorrowMut};
-use std::fs;
 use std::net::SocketAddr;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use bytes::{BufMut, BytesMut};
-use quinn::{Connection, Endpoint, EndpointBuilder, NewConnection};
+use quinn::{Connection, Endpoint};
 use tokio::io::{Error, ErrorKind};
 use tokio::io::Result;
 use tokio::net::TcpStream;
-use tokio::prelude::*;
 use tokio::stream::StreamExt;
 use tokio::sync::RwLock;
 use yaml_rust::Yaml;
 
+use crate::client::Channel;
+use crate::client::CONNECTION_POOL;
 use crate::commons::{Address, OptionConvert, quic_config, StdResAutoConvert, StdResConvert};
 use crate::CONFIG_ERROR;
 
@@ -31,11 +29,13 @@ pub async fn start(local_addr: &str, host_list: Vec<&Yaml>) -> Result<()> {
 
   let endpoint = Arc::new(endpoint);
   for host in host_list {
-    QuicChannel::new(
+    let quic_channel = QuicChannel::new(
       endpoint.clone(),
       host["host"].as_str().option_to_res(CONFIG_ERROR)?.parse().res_auto_convert()?,
       host["server_name"].as_str().option_to_res(CONFIG_ERROR)?.to_string(),
     );
+    let quic_channel = Channel::Quic(quic_channel);
+    CONNECTION_POOL.lock().res_auto_convert()?.put(nanoid!(4), quic_channel);
   };
   Ok(())
 }
@@ -61,7 +61,7 @@ impl QuicChannel {
     let mut conn_lock_guard = self.conn.write().await;
 
     if conn_lock_guard.is_none() {
-      let mut conn = self.endpoint.connect(&self.remote_addr, &self.server_name)
+      let conn = self.endpoint.connect(&self.remote_addr, &self.server_name)
         .res_convert(|_| "Connection error".to_string())?.await?;
 
       let connection = conn.connection;

@@ -15,7 +15,7 @@ use tokio::fs;
 use tokio::io::{Error, ErrorKind, Result};
 use yaml_rust::YamlLoader;
 
-use crate::commons::{OptionConvert, StdResAutoConvert, StdResConvert};
+use crate::commons::{OptionConvert, StdResAutoConvert};
 
 mod client;
 mod server;
@@ -45,24 +45,21 @@ async fn process() -> Result<()> {
   let config = YamlLoader::load_from_str(&config).res_auto_convert()?;
   let config = &config[0];
 
-  let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
-  let buff_size = config["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
 
   match mode.as_str() {
     "client" => {
-      let host_list = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
-      // client::start(host, host_list, buff_size as usize).await
+      let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
+      let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
+      let buff_size = config["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
+      client::start(host, remote_hosts, buff_size as usize).await
     }
     "server" => {
-      let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
-
-      // server::start(host, key, buff_size as usize).await
+      server::start(config).await
     }
     _ => {
-      // Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
+      Err(Error::new(ErrorKind::Other, CONFIG_ERROR))
     }
-  };
-  Ok(())
+  }
 }
 
 fn logger_init() -> Result<()> {

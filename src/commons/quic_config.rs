@@ -1,10 +1,8 @@
-use std::net::SocketAddr;
-
-use quinn::{Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, Endpoint, PrivateKey, ServerConfig, ServerConfigBuilder};
+use quinn::{Certificate, CertificateChain, ClientConfig, ClientConfigBuilder, PrivateKey, ServerConfig, ServerConfigBuilder};
 use tokio::fs;
 use tokio::io::Result;
 
-use crate::commons::{StdResAutoConvert, StdResConvert};
+use crate::commons::StdResAutoConvert;
 
 pub async fn configure_client(cert_paths: Vec<String>) -> Result<ClientConfig> {
   let mut cfg_builder = ClientConfigBuilder::default();
@@ -12,7 +10,7 @@ pub async fn configure_client(cert_paths: Vec<String>) -> Result<ClientConfig> {
   for path in cert_paths {
     let v = fs::read(path).await?;
     let certificate = Certificate::from_der(&v).unwrap();
-    cfg_builder.add_certificate_authority(certificate);
+    cfg_builder.add_certificate_authority(certificate).res_auto_convert()?;
   };
 
   cfg_builder.enable_0rtt();
@@ -29,7 +27,7 @@ pub async fn configure_server(cert_path: &str, priv_key_path: &str) -> Result<Se
   let priv_key = PrivateKey::from_der(&priv_key).res_auto_convert()?;
 
   let mut cfg_builder = ServerConfigBuilder::default();
-  cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key);
+  cfg_builder.certificate(CertificateChain::from_certs(vec![cert]), priv_key).res_auto_convert()?;
 
   Ok(cfg_builder.build())
 }

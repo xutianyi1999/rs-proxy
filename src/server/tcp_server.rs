@@ -10,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
 use tokio::time::Duration;
 
-use crate::commons::{Address, StdResAutoConvert, StdResConvert};
+use crate::commons::{Address, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 
 type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;

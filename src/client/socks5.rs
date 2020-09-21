@@ -5,7 +5,7 @@ use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::prelude::*;
 
-use crate::commons::{Address, StdResAutoConvert, StdResConvert};
+use crate::commons::{Address, StdResAutoConvert};
 
 const SOCKS5_VERSION: u8 = 0x05;
 const NO_AUTH: u8 = 0x00;

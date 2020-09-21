@@ -7,7 +7,7 @@ use tokio::stream::StreamExt;
 
 use crate::commons::{quic_config, StdResAutoConvert, StdResConvert};
 
-pub async fn start(cert_path: &str, priv_key_path: &str, addr: &str) -> Result<()> {
+pub async fn start(addr: &str, cert_path: &str, priv_key_path: &str) -> Result<()> {
   let sever_config = quic_config::configure_server(cert_path, priv_key_path).await.res_auto_convert()?;
 
   let mut build = Endpoint::builder();
@@ -18,14 +18,18 @@ pub async fn start(cert_path: &str, priv_key_path: &str, addr: &str) -> Result<(
   info!("Server bind {}", endpoint.local_addr()?);
 
   while let Some(conn) = incoming.next().await {
-    tokio::spawn(async move {});
+    tokio::spawn(async move {
+      if let Err(e) = process(conn).await {
+        error!("{}", e);
+      }
+    });
   };
   Ok(())
 }
 
 async fn process(conn: Connecting) -> Result<()> {
   let remote_addr = conn.remote_address();
-  let socket = conn.await.res_convert(|e| "Connection error".to_string())?;
+  let socket = conn.await.res_convert(|_| "Connection error".to_string())?;
   info!("{} connected", remote_addr);
 
   let mut bi = socket.bi_streams;
@@ -50,7 +54,7 @@ async fn child_process(rxtx: (SendStream, RecvStream)) -> Result<()> {
 
   let len = rx.read_u8().await.unwrap() as usize;
   let mut buff = vec![0u8; len];
-  rx.read_exact(&mut buff).await;
+  rx.read_exact(&mut buff).await.res_convert(|_| "Decode msg error".to_string())?;
 
   let host = String::from_utf8(buff[..buff.len() - 2].to_vec()).res_auto_convert()?;
   let port: [u8; 2] = buff[buff.len() - 2..].try_into().unwrap();

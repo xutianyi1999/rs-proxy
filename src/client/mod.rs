@@ -1,21 +1,14 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::{Arc, Mutex};
 
-use bytes::{Bytes, BytesMut};
-use crypto::rc4::Rc4;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, Error, ErrorKind, Result};
+use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::mpsc;
 use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
-use crate::{commons, CONFIG_ERROR};
-use crate::client::Channel::Tcp;
 use crate::client::quic_client::QuicChannel;
 use crate::client::tcp_client::TcpMuxChannel;
-use crate::commons::{Address, OptionConvert, StdResAutoConvert, StdResConvert};
-use crate::commons::tcp_mux::{Msg, MsgWriteHandler};
+use crate::commons::{Address, StdResAutoConvert};
 
 mod tcp_client;
 mod socks5;
