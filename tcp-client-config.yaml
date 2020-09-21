@@ -8,15 +8,10 @@ remote:
   # 名称
   - name: local
     # 协议
-    proctol: tcp
+    protocol: tcp
     # 连接数
     connections: 1
     # ip 地址
     host: 127.0.0.1:12345
     # 密钥
     key: "123a"
-  - name: local2
-    protocol: quic
-    server_name: test
-    host: 127.0.0.1:12346
-    cert: d://test.der

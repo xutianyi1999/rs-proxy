@@ -16,12 +16,13 @@ use crate::commons::{Address, OptionConvert, StdResAutoConvert, tcp_mux};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 use crate::CONFIG_ERROR;
 
-pub fn start(host_list: Vec<&Yaml>, buff_size: usize) -> Result<()> {
+pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
   for host in host_list {
     let server_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
     let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
     let addr = host["host"].as_str().option_to_res(CONFIG_ERROR)?;
     let key = host["key"].as_str().option_to_res(CONFIG_ERROR)?;
+    let buff_size = host["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
     let rc4 = Rc4::new(key.as_bytes());
 
     for i in 0..count {
@@ -31,7 +32,7 @@ pub fn start(host_list: Vec<&Yaml>, buff_size: usize) -> Result<()> {
       tokio::spawn(async move {
         let server_name = format!("{}-{}", server_name, i);
 
-        if let Err(e) = connect(&addr, &server_name, rc4, buff_size).await {
+        if let Err(e) = connect(&addr, &server_name, rc4, buff_size as usize).await {
           error!("{}", e);
         }
         error!("{} crashed", server_name);

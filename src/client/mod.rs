@@ -23,12 +23,12 @@ enum Channel {
   Quic(QuicChannel),
 }
 
-pub async fn start(bind_addr: &str, remote_hosts: &Array, buff_size: usize) -> Result<()> {
+pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
   let tcp_list: Vec<&Yaml> = remote_hosts.iter()
     .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
     .collect();
 
-  tcp_client::start(tcp_list, buff_size)?;
+  tcp_client::start(tcp_list)?;
 
   let quic_list: Vec<&Yaml> = remote_hosts.iter()
     .filter(|e| e["protocol"].as_str().unwrap().eq("quic"))

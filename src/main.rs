@@ -50,8 +50,7 @@ async fn process() -> Result<()> {
     "client" => {
       let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
       let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
-      let buff_size = config["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
-      client::start(host, remote_hosts, buff_size as usize).await
+      client::start(host, remote_hosts).await
     }
     "server" => {
       server::start(config).await

@@ -1,0 +1,12 @@
+---
+# 本地socks5绑定地址
+host: 0.0.0.0:12333
+# 服务端地址 (多个)
+remote:
+  # 名称
+  - name: local
+    # 协议
+    protocol: quic
+    # ip 地址
+    host: 127.0.0.1:12345
+    cert: C:\Users\xutia\Desktop\rs-proxy\key-generator\cert.der
