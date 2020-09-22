@@ -45,7 +45,6 @@ async fn process() -> Result<()> {
   let config = YamlLoader::load_from_str(&config).res_auto_convert()?;
   let config = &config[0];
 
-
   match mode.as_str() {
     "client" => {
       let host = config["host"].as_str().option_to_res(CONFIG_ERROR)?;
@@ -55,9 +54,7 @@ async fn process() -> Result<()> {
     "server" => {
       server::start(config).await
     }
-    _ => {
-      Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
-    }
+    _ => Err(Error::new(ErrorKind::Other, COMMAND_FAILED))
   }
 }
 
