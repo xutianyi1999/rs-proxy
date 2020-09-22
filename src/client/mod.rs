@@ -28,13 +28,18 @@ pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
     .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
     .collect();
 
-  tcp_client::start(tcp_list)?;
+  if !tcp_list.is_empty() {
+    tcp_client::start(tcp_list)?;
+  }
 
   let quic_list: Vec<&Yaml> = remote_hosts.iter()
     .filter(|e| e["protocol"].as_str().unwrap().eq("quic"))
     .collect();
 
-  quic_client::start(bind_addr, quic_list).await?;
+  if !quic_list.is_empty() {
+    quic_client::start(bind_addr, quic_list).await?;
+  }
+
   socks5_server_bind(bind_addr).await
 }
 

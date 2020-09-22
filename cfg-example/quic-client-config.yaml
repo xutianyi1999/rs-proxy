@@ -9,5 +9,7 @@ remote:
     protocol: quic
     # ip 地址
     host: 127.0.0.1:12345
+    # 证书地址
     cert: C:\cert.der
+    # subjectAltName
     server_name: test
