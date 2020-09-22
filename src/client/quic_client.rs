@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
 use bytes::{BufMut, BytesMut};
@@ -24,7 +24,7 @@ pub async fn start(local_addr: &str, host_list: Vec<&Yaml>) -> Result<()> {
   let mut builder = Endpoint::builder();
   builder.default_client_config(client_config);
 
-  let (endpoint, _) = builder.bind(&local_addr.parse().res_auto_convert()?)
+  let (endpoint, _) = builder.bind(&local_addr.to_socket_addrs()?.next().option_to_res("Address error")?)
     .res_convert(|_| "Udp client bind error".to_string())?;
 
   let endpoint = Arc::new(endpoint);
@@ -32,7 +32,7 @@ pub async fn start(local_addr: &str, host_list: Vec<&Yaml>) -> Result<()> {
   for host in host_list {
     let quic_channel = QuicChannel::new(
       endpoint.clone(),
-      host["host"].as_str().option_to_res(CONFIG_ERROR)?.parse().res_auto_convert()?,
+      host["host"].as_str().option_to_res(CONFIG_ERROR)?.to_socket_addrs()?.next().option_to_res("Address error")?,
       host["server_name"].as_str().option_to_res(CONFIG_ERROR)?.to_string(),
     );
     let quic_channel = Channel::Quic(quic_channel);

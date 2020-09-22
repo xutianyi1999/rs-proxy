@@ -1,12 +1,12 @@
 use std::convert::TryInto;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
 use quinn::{Connecting, Endpoint, RecvStream, SendStream};
 use tokio::io::{AsyncReadExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 
-use crate::commons::{quic_config, StdResAutoConvert, StdResConvert};
+use crate::commons::{OptionConvert, quic_config, StdResAutoConvert, StdResConvert};
 
 pub async fn start(addr: &str, cert_path: &str, priv_key_path: &str) -> Result<()> {
   let sever_config = quic_config::configure_server(cert_path, priv_key_path).await.res_auto_convert()?;
@@ -14,7 +14,7 @@ pub async fn start(addr: &str, cert_path: &str, priv_key_path: &str) -> Result<(
   let mut build = Endpoint::builder();
   build.listen(sever_config);
 
-  let local_addr: SocketAddr = addr.parse().res_auto_convert()?;
+  let local_addr: SocketAddr = addr.to_socket_addrs()?.next().option_to_res("Address error")?;
 
   let (_, mut incoming) = build.bind(&local_addr)
     .res_convert(|_| "Quic server bind error".to_string())?;
