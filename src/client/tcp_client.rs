@@ -106,7 +106,7 @@ impl TcpMuxChannel {
   }
 
   pub async fn exec_remote_inbound_handler(&self, rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
-    let mut rx = BufReader::with_capacity(65535 * 10, rx);
+    let mut rx = BufReader::with_capacity(10485760, rx);
 
     let res = loop {
       let msg = match rx.read_msg(&mut rc4).await {

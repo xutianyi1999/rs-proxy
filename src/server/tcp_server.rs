@@ -42,7 +42,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
   }
 
   let (tcp_rx, mut tcp_tx) = socket.into_split();
-  let mut tcp_rx = BufReader::with_capacity(65535 * 10, tcp_rx);
+  let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
 
   let inner_db = db.clone();
