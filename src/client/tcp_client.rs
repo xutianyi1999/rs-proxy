@@ -95,13 +95,13 @@ pub type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
 pub struct TcpMuxChannel {
   tx: Sender<Msg>,
   db: DB,
-  is_close: RwLock<Box<bool>>,
+  is_close: RwLock<bool>,
 }
 
 impl TcpMuxChannel {
   pub fn new(tx: Sender<Msg>) -> (TcpMuxChannel, DB) {
     let db = Arc::new(DashMap::new());
-    let channel = TcpMuxChannel { tx, db: db.clone(), is_close: RwLock::new(Box::new(false)) };
+    let channel = TcpMuxChannel { tx, db: db.clone(), is_close: RwLock::new(false) };
     (channel, db)
   }
 
@@ -130,7 +130,7 @@ impl TcpMuxChannel {
     };
 
     let mut flag_lock_guard = self.is_close.write().await;
-    **flag_lock_guard = true;
+    *flag_lock_guard = true;
     self.db.clear();
     res
   }
@@ -172,7 +172,7 @@ impl TcpMuxChannel {
 
   async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {
     let is_close_lock_guard = self.is_close.read().await;
-    if **is_close_lock_guard == true {
+    if *is_close_lock_guard == true {
       return Err(Error::new(ErrorKind::Other, "Is closed"));
     }
 
