@@ -1,9 +1,12 @@
 use tokio::io::{Error, ErrorKind, Result};
+use tokio::time::Duration;
 
 pub mod tcp_mux;
 pub mod quic_config;
 
 pub type Address = (String, u16);
+
+pub const KEEPALIVE_DURATION: Option<Duration> = Option::Some(Duration::from_secs(120));
 
 pub trait OptionConvert<T> {
   fn option_to_res(self, msg: &str) -> Result<T>;

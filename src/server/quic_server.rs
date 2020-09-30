@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use tokio::stream::StreamExt;
 
-use crate::commons::{OptionConvert, quic_config, StdResAutoConvert, StdResConvert};
+use crate::commons::{KEEPALIVE_DURATION, OptionConvert, quic_config, StdResAutoConvert, StdResConvert};
 
 pub async fn start(addr: &str, cert_path: &str, priv_key_path: &str) -> Result<()> {
   let sever_config = quic_config::configure_server(cert_path, priv_key_path).await.res_auto_convert()?;
@@ -64,6 +64,11 @@ async fn child_process(rxtx: (SendStream, RecvStream)) -> Result<()> {
   let port: [u8; 2] = buff[buff.len() - 2..].try_into().res_auto_convert()?;
 
   let mut socket = TcpStream::connect((host.as_str(), u16::from_be_bytes(port))).await?;
+
+  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
+    error!("{}", e);
+  }
+
   let (mut tcp_rx, mut tcp_tx) = socket.split();
 
   let f1 = tokio::io::copy(&mut quic_rx, &mut tcp_tx);

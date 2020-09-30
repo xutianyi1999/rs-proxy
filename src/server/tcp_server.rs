@@ -8,9 +8,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
-use tokio::time::Duration;
 
-use crate::commons::{Address, StdResAutoConvert};
+use crate::commons::{Address, KEEPALIVE_DURATION, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 
 type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
@@ -37,7 +36,7 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  if let Err(e) = socket.set_keepalive(Option::Some(Duration::from_secs(120))) {
+  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
     error!("{}", e);
   }
 
@@ -100,7 +99,13 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
 async fn child_channel_process(channel_id: &String, addr: Address,
                                mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
-  let (mut tcp_rx, mut tcp_tx) = TcpStream::connect((addr.0.as_str(), addr.1)).await?.into_split();
+  let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
+
+  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
+    error!("{}", e);
+  }
+
+  let (mut tcp_rx, mut tcp_tx) = socket.into_split();
 
   tokio::spawn(async move {
     while let Some(data) = mpsc_rx.recv().await {
