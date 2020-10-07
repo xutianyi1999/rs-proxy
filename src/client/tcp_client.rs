@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, Error, ErrorKind, Result};
@@ -58,19 +58,21 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     info!("{} connected", server_name);
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
-    let (cmc, db) = TcpMuxChannel::new(mpsc_tx);
+    let cmc = TcpMuxChannel::new(mpsc_tx);
     let cmc = Arc::new(cmc);
 
     // 读取本地管道数据，发送到远端
     tokio::spawn(async move {
       while let Some(msg) = mpsc_rx.recv().await {
-        if let Msg::DATA(channel_id, _) = &msg {
-          if !db.contains_key(channel_id) {
-            continue;
+        if let Msg::DATA(_, _, is_available) = &msg {
+          if let Some(flag) = is_available {
+            if !flag.load(Ordering::SeqCst) {
+              continue;
+            }
           }
         }
 
-        if let Err(e) = tcp_tx.write_msg(&msg, &mut rc4).await {
+        if let Err(e) = tcp_tx.write_msg(msg, &mut rc4).await {
           error!("{}", e);
           return;
         }
@@ -90,7 +92,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 }
 
 // 本地管道映射
-pub type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
+pub type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
 
 pub struct TcpMuxChannel {
   tx: Sender<Msg>,
@@ -99,10 +101,8 @@ pub struct TcpMuxChannel {
 }
 
 impl TcpMuxChannel {
-  pub fn new(tx: Sender<Msg>) -> (TcpMuxChannel, DB) {
-    let db = Arc::new(DashMap::new());
-    let channel = TcpMuxChannel { tx, db: db.clone(), is_close: RwLock::new(false) };
-    (channel, db)
+  pub fn new(tx: Sender<Msg>) -> TcpMuxChannel {
+    TcpMuxChannel { tx, db: Arc::new(DashMap::new()), is_close: RwLock::new(false) }
   }
 
   pub async fn exec_remote_inbound_handler(&self, rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
@@ -115,7 +115,7 @@ impl TcpMuxChannel {
       };
 
       match msg {
-        Msg::DATA(channel_id, data) => {
+        Msg::DATA(channel_id, data, _) => {
           if let Some(tx) = self.db.get(&channel_id) {
             if let Err(e) = tx.send(data) {
               error!("{}", e.to_string())
@@ -138,7 +138,7 @@ impl TcpMuxChannel {
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, socket: TcpStream, addr: Address) -> Result<()> {
     let (mut tcp_rx, mut tcp_tx) = socket.into_split();
-    let (mpsc_tx, mut mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
+    let (mpsc_tx, mut mpsc_rx) = mpsc::unbounded_channel::<Vec<u8>>();
 
     tokio::spawn(async move {
       while let Some(data) = mpsc_rx.recv().await {
@@ -150,27 +150,33 @@ impl TcpMuxChannel {
     });
 
     let mut p2p_channel = self.register(addr, mpsc_tx).await?;
+    let is_available = Arc::new(AtomicBool::new(true));
+    let mut buff = [0u8; 65530];
 
     loop {
-      let mut buff = BytesMut::with_capacity(65530);
-
-      match tcp_rx.read_buf(&mut buff).await {
-        Ok(size) => if size == 0 {
+      match tcp_rx.read(&mut buff).await {
+        Ok(n) if n == 0 => {
+          is_available.store(false, Ordering::SeqCst);
           p2p_channel.close().await?;
           return Ok(());
-        },
+        }
+        Ok(n) => {
+          let slice = &buff[..n];
+          p2p_channel.write(slice, is_available.clone()).await?;
+        }
         Err(e) => {
+          is_available.store(false, Ordering::SeqCst);
+
           if let Err(e) = p2p_channel.close().await {
             error!("{}", e);
           }
           return Err(e);
         }
-      }
-      p2p_channel.write(buff.freeze()).await?;
+      };
     }
   }
 
-  async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Bytes>) -> Result<P2pChannel<'_>> {
+  async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Vec<u8>>) -> Result<P2pChannel<'_>> {
     let is_close_lock_guard = self.is_close.read().await;
     if *is_close_lock_guard == true {
       return Err(Error::new(ErrorKind::Other, "Is closed"));
@@ -203,8 +209,8 @@ struct P2pChannel<'a> {
 }
 
 impl P2pChannel<'_> {
-  pub async fn write(&mut self, data: Bytes) -> Result<()> {
-    self.tx.send(Msg::DATA(self.channel_id.clone(), data)).await.res_auto_convert()
+  pub async fn write(&mut self, data: &[u8], is_available: Arc<AtomicBool>) -> Result<()> {
+    self.tx.send(Msg::DATA(self.channel_id.clone(), data.to_vec(), Option::Some(is_available))).await.res_auto_convert()
   }
 
   pub async fn close(&mut self) -> Result<()> {

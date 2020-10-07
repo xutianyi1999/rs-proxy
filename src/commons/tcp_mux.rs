@@ -1,3 +1,6 @@
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
@@ -18,45 +21,46 @@ const DATA: u8 = 0x03;
 pub enum Msg {
   CONNECT(String, Address),
   DISCONNECT(String),
-  DATA(String, Bytes),
+  DATA(String, Vec<u8>, Option<Arc<AtomicBool>>),
 }
 
-fn encode(msg: &Msg) -> Bytes {
+fn encode(msg: Msg) -> Bytes {
   match msg {
     Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
     Msg::DISCONNECT(id) => encode_disconnect_msg(id),
-    Msg::DATA(id, data) => encode_data_msg(id, data)
+    Msg::DATA(id, data, _) => encode_data_msg(id, &data)
   }
 }
 
-fn encode_connect_msg(addr: &Address, channel_id: &str) -> Bytes {
-  let mut buff = BytesMut::new();
+fn encode_connect_msg(addr: Address, channel_id: String) -> Bytes {
+  let (host, port) = addr;
+  let mut buff = BytesMut::with_capacity(5 + 2 + host.len());
+
   buff.put_u8(CONNECT);
   buff.put_slice(channel_id.as_bytes());
 
-  let (host, port) = addr;
-
   buff.put_slice(host.as_bytes());
-  buff.put_u16(port.clone());
+  buff.put_u16(port);
   buff.freeze()
 }
 
-fn encode_disconnect_msg(channel_id: &str) -> Bytes {
-  let mut buff = BytesMut::new();
+fn encode_disconnect_msg(channel_id: String) -> Bytes {
+  let mut buff = BytesMut::with_capacity(5);
   buff.put_u8(DISCONNECT);
   buff.put_slice(channel_id.as_bytes());
   buff.freeze()
 }
 
-fn encode_data_msg(channel_id: &str, data: &[u8]) -> Bytes {
-  let mut buff = BytesMut::new();
+fn encode_data_msg(channel_id: String, data: &[u8]) -> Bytes {
+  let mut buff = BytesMut::with_capacity(5 + data.len());
   buff.put_u8(DATA);
   buff.put_slice(channel_id.as_bytes());
   buff.put_slice(data);
   buff.freeze()
 }
 
-fn decode(mut msg: Bytes) -> Result<Msg> {
+fn decode(data: Vec<u8>) -> Result<Msg> {
+  let mut msg = Bytes::from(data);
   let mode = msg.get_u8();
   let mut str = vec![0u8; 4];
   msg.copy_to_slice(&mut str);
@@ -70,7 +74,7 @@ fn decode(mut msg: Bytes) -> Result<Msg> {
       Msg::CONNECT(channel_id, (String::from_utf8(host).res_auto_convert()?, port))
     }
     DISCONNECT => Msg::DISCONNECT(channel_id),
-    DATA => Msg::DATA(channel_id, msg),
+    DATA => Msg::DATA(channel_id, msg.to_vec(), Option::None),
     _ => return Err(Error::new(ErrorKind::Other, "Message error"))
   };
   Ok(msg)
@@ -89,16 +93,16 @@ pub fn create_channel_id() -> String {
 
 #[async_trait]
 pub trait MsgWriteHandler {
-  async fn write_msg(&mut self, msg: &Msg, rc4: &mut Rc4) -> Result<()>;
+  async fn write_msg(&mut self, msg: Msg, rc4: &mut Rc4) -> Result<()>;
 }
 
 #[async_trait]
 impl MsgWriteHandler for OwnedWriteHalf {
-  async fn write_msg(&mut self, msg: &Msg, rc4: &mut Rc4) -> Result<()> {
+  async fn write_msg(&mut self, msg: Msg, rc4: &mut Rc4) -> Result<()> {
     let msg = encode(msg);
     let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
-    let mut data = BytesMut::new();
+    let mut data = BytesMut::with_capacity(msg.len() + 2);
     data.put_u16(msg.len() as u16);
     data.put_slice(&msg);
 
@@ -116,7 +120,7 @@ impl MsgReadHandler for BufReader<OwnedReadHalf> {
   async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg> {
     let data = read_msg(self).await?;
     let data = crypto(&data, rc4, MODE::DECRYPT)?;
-    decode(Bytes::from(data))
+    decode(data)
   }
 }
 

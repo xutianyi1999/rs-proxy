@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use bytes::{Bytes, BytesMut};
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, Result};
@@ -12,7 +12,7 @@ use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
 use crate::commons::{Address, KEEPALIVE_DURATION, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 
-type DB = Arc<DashMap<String, UnboundedSender<Bytes>>>;
+type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let mut listener = TcpListener::bind(host).await?;
@@ -44,16 +44,17 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
 
-  let inner_db = db.clone();
   tokio::spawn(async move {
     while let Some(msg) = mpsc_rx.recv().await {
-      if let Msg::DATA(channel_id, _) = &msg {
-        if !inner_db.contains_key(channel_id) {
-          continue;
+      if let Msg::DATA(_, _, is_available) = &msg {
+        if let Some(flag) = is_available {
+          if !flag.load(Ordering::SeqCst) {
+            continue;
+          }
         }
       }
 
-      if let Err(e) = tcp_tx.write_msg(&msg, &mut rc4).await {
+      if let Err(e) = tcp_tx.write_msg(msg, &mut rc4).await {
         error!("{}", e);
         return;
       }
@@ -65,16 +66,20 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
     match msg {
       Msg::CONNECT(channel_id, addr) => {
-        let (child_mpsc_tx, child_mpsc_rx) = mpsc::unbounded_channel::<Bytes>();
+        let (child_mpsc_tx, child_mpsc_rx) = mpsc::unbounded_channel::<Vec<u8>>();
         db.insert(channel_id.clone(), child_mpsc_tx);
 
         let db = db.clone();
         let mut mpsc_tx = mpsc_tx.clone();
 
         tokio::spawn(async move {
-          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
+          let is_available = Arc::new(AtomicBool::new(true));
+
+          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx, &is_available).await {
             error!("{}", e);
           }
+
+          is_available.store(false, Ordering::SeqCst);
 
           if let Some(_) = db.remove(&channel_id) {
             if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
@@ -86,7 +91,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
       Msg::DISCONNECT(channel_id) => {
         db.remove(&channel_id);
       }
-      Msg::DATA(channel_id, data) => {
+      Msg::DATA(channel_id, data, _) => {
         if let Some(tx) = db.get(&channel_id) {
           if let Err(e) = tx.send(data) {
             error!("{}", e.to_string())
@@ -98,7 +103,8 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Bytes>) -> Result<()> {
+                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>,
+                               is_available: &Arc<AtomicBool>) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
 
   if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
@@ -116,19 +122,16 @@ async fn child_channel_process(channel_id: &String, addr: Address,
     };
   });
 
+  let mut buff = [0u8; 65530];
+
   loop {
-    let mut buff = BytesMut::with_capacity(65530);
+    let slice = match tcp_rx.read(&mut buff).await {
+      Ok(n) if n == 0 => return Ok(()),
+      Ok(n) => &buff[..n],
+      Err(e) => return Err(e)
+    };
 
-    match tcp_rx.read_buf(&mut buff).await {
-      Ok(len) => if len == 0 {
-        return Ok(());
-      }
-      Err(e) => {
-        return Err(e);
-      }
-    }
-
-    mpsc_tx.send(Msg::DATA(channel_id.clone(), buff.freeze())).await
+    mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec(), Option::Some(is_available.clone()))).await
       .res_auto_convert()?;
   };
 }
