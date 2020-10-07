@@ -80,11 +80,11 @@ fn decode(data: Vec<u8>) -> Result<Msg> {
   Ok(msg)
 }
 
-async fn read_msg(rx: &mut BufReader<OwnedReadHalf>) -> Result<Bytes> {
+async fn read_msg(rx: &mut BufReader<OwnedReadHalf>) -> Result<Vec<u8>> {
   let len = rx.read_u16().await?;
   let mut msg = vec![0u8; len as usize];
   rx.read_exact(&mut msg).await?;
-  Ok(Bytes::from(msg))
+  Ok(msg)
 }
 
 pub fn create_channel_id() -> String {

@@ -73,13 +73,9 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
         let mut mpsc_tx = mpsc_tx.clone();
 
         tokio::spawn(async move {
-          let is_available = Arc::new(AtomicBool::new(true));
-
-          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx, &is_available).await {
+          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
             error!("{}", e);
           }
-
-          is_available.store(false, Ordering::SeqCst);
 
           if let Some(_) = db.remove(&channel_id) {
             if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
@@ -103,8 +99,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>,
-                               is_available: &Arc<AtomicBool>) -> Result<()> {
+                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
 
   if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
@@ -123,12 +118,19 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   });
 
   let mut buff = vec![0u8; 65530];
+  let is_available = Arc::new(AtomicBool::new(true));
 
   loop {
     let slice = match tcp_rx.read(&mut buff).await {
-      Ok(n) if n == 0 => return Ok(()),
+      Ok(n) if n == 0 => {
+        is_available.store(false, Ordering::SeqCst);
+        return Ok(());
+      }
       Ok(n) => &buff[..n],
-      Err(e) => return Err(e)
+      Err(e) => {
+        is_available.store(false, Ordering::SeqCst);
+        return Err(e);
+      }
     };
 
     mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec(), Option::Some(is_available.clone()))).await

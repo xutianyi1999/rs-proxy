@@ -150,23 +150,16 @@ impl TcpMuxChannel {
     });
 
     let mut p2p_channel = self.register(addr, mpsc_tx).await?;
-    let is_available = Arc::new(AtomicBool::new(true));
     let mut buff = vec![0u8; 65530];
 
     loop {
       match tcp_rx.read(&mut buff).await {
-        Ok(n) if n == 0 => {
-          is_available.store(false, Ordering::SeqCst);
-          p2p_channel.close().await?;
-          return Ok(());
-        }
+        Ok(n) if n == 0 => return p2p_channel.close().await,
         Ok(n) => {
           let slice = &buff[..n];
-          p2p_channel.write(slice, is_available.clone()).await?;
+          p2p_channel.write(slice).await?;
         }
         Err(e) => {
-          is_available.store(false, Ordering::SeqCst);
-
           if let Err(e) = p2p_channel.close().await {
             error!("{}", e);
           }
@@ -190,7 +183,12 @@ impl TcpMuxChannel {
 
     self.db.insert(channel_id.clone(), mpsc_tx);
 
-    let p2p_channel = P2pChannel { tx, mux_channel: self, channel_id };
+    let p2p_channel = P2pChannel {
+      tx,
+      mux_channel: self,
+      channel_id,
+      is_available: Arc::new(AtomicBool::new(true)),
+    };
     Ok(p2p_channel)
   }
 
@@ -206,14 +204,21 @@ struct P2pChannel<'a> {
   tx: Sender<Msg>,
   mux_channel: &'a TcpMuxChannel,
   channel_id: String,
+  is_available: Arc<AtomicBool>,
 }
 
 impl P2pChannel<'_> {
-  pub async fn write(&mut self, data: &[u8], is_available: Arc<AtomicBool>) -> Result<()> {
-    self.tx.send(Msg::DATA(self.channel_id.clone(), data.to_vec(), Option::Some(is_available))).await.res_auto_convert()
+  pub async fn write(&mut self, data: &[u8]) -> Result<()> {
+    let data = Msg::DATA(
+      self.channel_id.clone(),
+      data.to_vec(),
+      Option::Some(self.is_available.clone()),
+    );
+    self.tx.send(data).await.res_auto_convert()
   }
 
   pub async fn close(&mut self) -> Result<()> {
+    self.is_available.store(false, Ordering::SeqCst);
     self.mux_channel.remove(&self.channel_id, &mut self.tx).await
   }
 }
