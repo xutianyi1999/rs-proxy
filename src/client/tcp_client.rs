@@ -151,7 +151,7 @@ impl TcpMuxChannel {
 
     let mut p2p_channel = self.register(addr, mpsc_tx).await?;
     let is_available = Arc::new(AtomicBool::new(true));
-    let mut buff = [0u8; 65530];
+    let mut buff = vec![0u8; 65530];
 
     loop {
       match tcp_rx.read(&mut buff).await {

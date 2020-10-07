@@ -122,7 +122,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
     };
   });
 
-  let mut buff = [0u8; 65530];
+  let mut buff = vec![0u8; 65530];
 
   loop {
     let slice = match tcp_rx.read(&mut buff).await {
