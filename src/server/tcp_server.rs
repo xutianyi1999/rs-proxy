@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
@@ -46,14 +45,6 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
   tokio::spawn(async move {
     while let Some(msg) = mpsc_rx.recv().await {
-      if let Msg::DATA(_, _, is_available) = &msg {
-        if let Some(flag) = is_available {
-          if !flag.load(Ordering::SeqCst) {
-            continue;
-          }
-        }
-      }
-
       if let Err(e) = tcp_tx.write_msg(msg, &mut rc4).await {
         error!("{}", e);
         return;
@@ -87,7 +78,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
       Msg::DISCONNECT(channel_id) => {
         db.remove(&channel_id);
       }
-      Msg::DATA(channel_id, data, _) => {
+      Msg::DATA(channel_id, data) => {
         if let Some(tx) = db.get(&channel_id) {
           if let Err(e) = tx.send(data) {
             error!("{}", e.to_string())
@@ -118,22 +109,15 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   });
 
   let mut buff = vec![0u8; 65530];
-  let is_available = Arc::new(AtomicBool::new(true));
 
   loop {
     let slice = match tcp_rx.read(&mut buff).await {
-      Ok(n) if n == 0 => {
-        is_available.store(false, Ordering::SeqCst);
-        return Ok(());
-      }
+      Ok(n) if n == 0 => return Ok(()),
       Ok(n) => &buff[..n],
-      Err(e) => {
-        is_available.store(false, Ordering::SeqCst);
-        return Err(e);
-      }
+      Err(e) => return Err(e)
     };
 
-    mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec(), Option::Some(is_available.clone()))).await
+    mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec())).await
       .res_auto_convert()?;
   };
 }

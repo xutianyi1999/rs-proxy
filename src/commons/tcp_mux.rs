@@ -1,6 +1,3 @@
-use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
-
 use async_trait::async_trait;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
@@ -21,14 +18,14 @@ const DATA: u8 = 0x03;
 pub enum Msg {
   CONNECT(String, Address),
   DISCONNECT(String),
-  DATA(String, Vec<u8>, Option<Arc<AtomicBool>>),
+  DATA(String, Vec<u8>),
 }
 
 fn encode(msg: Msg) -> Bytes {
   match msg {
     Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
     Msg::DISCONNECT(id) => encode_disconnect_msg(id),
-    Msg::DATA(id, data, _) => encode_data_msg(id, &data)
+    Msg::DATA(id, data) => encode_data_msg(id, &data)
   }
 }
 
@@ -74,7 +71,7 @@ fn decode(data: Vec<u8>) -> Result<Msg> {
       Msg::CONNECT(channel_id, (String::from_utf8(host).res_auto_convert()?, port))
     }
     DISCONNECT => Msg::DISCONNECT(channel_id),
-    DATA => Msg::DATA(channel_id, msg.to_vec(), Option::None),
+    DATA => Msg::DATA(channel_id, msg.to_vec()),
     _ => return Err(Error::new(ErrorKind::Other, "Message error"))
   };
   Ok(msg)

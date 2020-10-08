@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
@@ -64,14 +63,6 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     // 读取本地管道数据，发送到远端
     tokio::spawn(async move {
       while let Some(msg) = mpsc_rx.recv().await {
-        if let Msg::DATA(_, _, is_available) = &msg {
-          if let Some(flag) = is_available {
-            if !flag.load(Ordering::SeqCst) {
-              continue;
-            }
-          }
-        }
-
         if let Err(e) = tcp_tx.write_msg(msg, &mut rc4).await {
           error!("{}", e);
           return;
@@ -115,7 +106,7 @@ impl TcpMuxChannel {
       };
 
       match msg {
-        Msg::DATA(channel_id, data, _) => {
+        Msg::DATA(channel_id, data) => {
           if let Some(tx) = self.db.get(&channel_id) {
             if let Err(e) = tx.send(data) {
               error!("{}", e.to_string())
@@ -187,7 +178,6 @@ impl TcpMuxChannel {
       tx,
       mux_channel: self,
       channel_id,
-      is_available: Arc::new(AtomicBool::new(true)),
     };
     Ok(p2p_channel)
   }
@@ -204,7 +194,6 @@ struct P2pChannel<'a> {
   tx: Sender<Msg>,
   mux_channel: &'a TcpMuxChannel,
   channel_id: String,
-  is_available: Arc<AtomicBool>,
 }
 
 impl P2pChannel<'_> {
@@ -212,13 +201,11 @@ impl P2pChannel<'_> {
     let data = Msg::DATA(
       self.channel_id.clone(),
       data.to_vec(),
-      Option::Some(self.is_available.clone()),
     );
     self.tx.send(data).await.res_auto_convert()
   }
 
   pub async fn close(&mut self) -> Result<()> {
-    self.is_available.store(false, Ordering::SeqCst);
     self.mux_channel.remove(&self.channel_id, &mut self.tx).await
   }
 }
