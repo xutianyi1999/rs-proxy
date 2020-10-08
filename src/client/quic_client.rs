@@ -1,7 +1,7 @@
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::Arc;
 
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use quinn::{Connection, Endpoint};
 use tokio::io::{Error, ErrorKind};
 use tokio::io::Result;
@@ -101,7 +101,7 @@ impl QuicChannel {
     let (mut tcp_rx, mut tcp_tx) = socket.split();
 
     let (host, port) = remote_addr;
-    let mut buff = BytesMut::with_capacity(1 + host.len() + 2);
+    let mut buff = Vec::with_capacity(1 + host.len() + 2);
     buff.put_u8(host.len() as u8 + 2);
     buff.put_slice(host.as_bytes());
     buff.put_u16(port);

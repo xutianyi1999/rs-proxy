@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, Bytes};
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
@@ -21,7 +21,7 @@ pub enum Msg {
   DATA(String, Vec<u8>),
 }
 
-fn encode(msg: Msg) -> Bytes {
+fn encode(msg: Msg) -> Vec<u8> {
   match msg {
     Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
     Msg::DISCONNECT(id) => encode_disconnect_msg(id),
@@ -29,31 +29,31 @@ fn encode(msg: Msg) -> Bytes {
   }
 }
 
-fn encode_connect_msg(addr: Address, channel_id: String) -> Bytes {
+fn encode_connect_msg(addr: Address, channel_id: String) -> Vec<u8> {
   let (host, port) = addr;
-  let mut buff = BytesMut::with_capacity(5 + 2 + host.len());
+  let mut buff = Vec::with_capacity(5 + 2 + host.len());
 
   buff.put_u8(CONNECT);
   buff.put_slice(channel_id.as_bytes());
 
   buff.put_slice(host.as_bytes());
   buff.put_u16(port);
-  buff.freeze()
+  buff
 }
 
-fn encode_disconnect_msg(channel_id: String) -> Bytes {
-  let mut buff = BytesMut::with_capacity(5);
+fn encode_disconnect_msg(channel_id: String) -> Vec<u8> {
+  let mut buff = Vec::with_capacity(5);
   buff.put_u8(DISCONNECT);
   buff.put_slice(channel_id.as_bytes());
-  buff.freeze()
+  buff
 }
 
-fn encode_data_msg(channel_id: String, data: &[u8]) -> Bytes {
-  let mut buff = BytesMut::with_capacity(5 + data.len());
+fn encode_data_msg(channel_id: String, data: &[u8]) -> Vec<u8> {
+  let mut buff = Vec::with_capacity(5 + data.len());
   buff.put_u8(DATA);
   buff.put_slice(channel_id.as_bytes());
   buff.put_slice(data);
-  buff.freeze()
+  buff
 }
 
 fn decode(data: Vec<u8>) -> Result<Msg> {
@@ -99,7 +99,7 @@ impl MsgWriteHandler for OwnedWriteHalf {
     let msg = encode(msg);
     let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
-    let mut data = BytesMut::with_capacity(msg.len() + 2);
+    let mut data = Vec::with_capacity(msg.len() + 2);
     data.put_u16(msg.len() as u16);
     data.put_slice(&msg);
 
