@@ -21,6 +21,12 @@ pub enum Msg {
   DATA(String, Vec<u8>),
 }
 
+impl Msg {
+  pub fn encode(self) -> Vec<u8> {
+    encode(self)
+  }
+}
+
 fn encode(msg: Msg) -> Vec<u8> {
   match msg {
     Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
@@ -90,13 +96,12 @@ pub fn create_channel_id() -> String {
 
 #[async_trait]
 pub trait MsgWriteHandler {
-  async fn write_msg(&mut self, msg: Msg, rc4: &mut Rc4) -> Result<()>;
+  async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()>;
 }
 
 #[async_trait]
 impl MsgWriteHandler for OwnedWriteHalf {
-  async fn write_msg(&mut self, msg: Msg, rc4: &mut Rc4) -> Result<()> {
-    let msg = encode(msg);
+  async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()> {
     let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
     let mut data = Vec::with_capacity(msg.len() + 2);

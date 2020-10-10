@@ -41,7 +41,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
   let (tcp_rx, mut tcp_tx) = socket.into_split();
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
-  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
+  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
 
   tokio::spawn(async move {
     while let Some(msg) = mpsc_rx.recv().await {
@@ -69,7 +69,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
           }
 
           if let Some(_) = db.remove(&channel_id) {
-            if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id)).await {
+            if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id).encode()).await {
               error!("{}", e.to_string());
             }
           }
@@ -90,7 +90,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &mut Sender<Msg>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
+                               mpsc_tx: &mut Sender<Vec<u8>>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
 
   if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
@@ -117,7 +117,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
       Err(e) => return Err(e)
     };
 
-    mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec())).await
+    mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec()).encode()).await
       .res_auto_convert()?;
   };
 }

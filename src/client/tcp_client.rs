@@ -56,7 +56,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 
     info!("{} connected", server_name);
 
-    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Msg>(buff_size);
+    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
     let cmc = TcpMuxChannel::new(mpsc_tx);
     let cmc = Arc::new(cmc);
 
@@ -86,13 +86,13 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 pub type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
 
 pub struct TcpMuxChannel {
-  tx: Sender<Msg>,
+  tx: Sender<Vec<u8>>,
   db: DB,
   is_close: RwLock<bool>,
 }
 
 impl TcpMuxChannel {
-  pub fn new(tx: Sender<Msg>) -> TcpMuxChannel {
+  pub fn new(tx: Sender<Vec<u8>>) -> TcpMuxChannel {
     TcpMuxChannel { tx, db: Arc::new(DashMap::new()), is_close: RwLock::new(false) }
   }
 
@@ -169,7 +169,7 @@ impl TcpMuxChannel {
     let channel_id = tcp_mux::create_channel_id();
     let mut tx = self.tx.clone();
 
-    tx.send(Msg::CONNECT(channel_id.clone(), addr)).await
+    tx.send(Msg::CONNECT(channel_id.clone(), addr).encode()).await
       .res_auto_convert()?;
 
     self.db.insert(channel_id.clone(), mpsc_tx);
@@ -182,16 +182,16 @@ impl TcpMuxChannel {
     Ok(p2p_channel)
   }
 
-  async fn remove(&self, channel_id: &String, tx: &mut Sender<Msg>) -> Result<()> {
+  async fn remove(&self, channel_id: &String, tx: &mut Sender<Vec<u8>>) -> Result<()> {
     if let Some(_) = self.db.remove(channel_id) {
-      tx.send(Msg::DISCONNECT(channel_id.clone())).await.res_auto_convert()?;
+      tx.send(Msg::DISCONNECT(channel_id.clone()).encode()).await.res_auto_convert()?;
     }
     Ok(())
   }
 }
 
 struct P2pChannel<'a> {
-  tx: Sender<Msg>,
+  tx: Sender<Vec<u8>>,
   mux_channel: &'a TcpMuxChannel,
   channel_id: String,
 }
@@ -201,7 +201,8 @@ impl P2pChannel<'_> {
     let data = Msg::DATA(
       self.channel_id.clone(),
       data.to_vec(),
-    );
+    ).encode();
+
     self.tx.send(data).await.res_auto_convert()
   }
 
