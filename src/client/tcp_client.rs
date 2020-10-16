@@ -140,7 +140,7 @@ impl TcpMuxChannel {
       };
     });
 
-    let mut p2p_channel = self.register(addr, mpsc_tx).await?;
+    let p2p_channel = self.register(addr, mpsc_tx).await?;
     let mut buff = vec![0u8; 65530];
 
     loop {
@@ -194,7 +194,7 @@ struct P2pChannel<'a> {
 }
 
 impl P2pChannel<'_> {
-  pub async fn write(&mut self, data: &[u8]) -> Result<()> {
+  pub async fn write(&self, data: &[u8]) -> Result<()> {
     let data = Msg::DATA(
       self.channel_id.clone(),
       data.to_vec(),
@@ -203,7 +203,7 @@ impl P2pChannel<'_> {
     self.mux_channel.tx.send(data).await.res_auto_convert()
   }
 
-  pub async fn close(&mut self) -> Result<()> {
+  pub async fn close(&self) -> Result<()> {
     self.mux_channel.remove(&self.channel_id).await
   }
 }
