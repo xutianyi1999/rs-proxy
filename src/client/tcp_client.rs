@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::sync::mpsc::{Sender, UnboundedSender};
 use yaml_rust::Yaml;
 
-use crate::client::{Channel, CONNECTION_POOL};
+use crate::client::CONNECTION_POOL;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert, tcp_mux};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 use crate::CONFIG_ERROR;
@@ -71,7 +71,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     });
 
     CONNECTION_POOL.lock().res_auto_convert()?
-      .put(channel_id.clone(), Channel::Tcp(cmc.clone()));
+      .put(channel_id.clone(), cmc.clone());
 
     if let Err(e) = cmc.exec_remote_inbound_handler(tcp_rx, rc4).await {
       error!("{}", e);
@@ -167,31 +167,28 @@ impl TcpMuxChannel {
     }
 
     let channel_id = tcp_mux::create_channel_id();
-    let mut tx = self.tx.clone();
 
-    tx.send(Msg::CONNECT(channel_id.clone(), addr).encode()).await
+    self.tx.send(Msg::CONNECT(channel_id.clone(), addr).encode()).await
       .res_auto_convert()?;
 
     self.db.insert(channel_id.clone(), mpsc_tx);
 
     let p2p_channel = P2pChannel {
-      tx,
       mux_channel: self,
       channel_id,
     };
     Ok(p2p_channel)
   }
 
-  async fn remove(&self, channel_id: &String, tx: &mut Sender<Vec<u8>>) -> Result<()> {
+  async fn remove(&self, channel_id: &String) -> Result<()> {
     if let Some(_) = self.db.remove(channel_id) {
-      tx.send(Msg::DISCONNECT(channel_id.clone()).encode()).await.res_auto_convert()?;
+      self.tx.send(Msg::DISCONNECT(channel_id.clone()).encode()).await.res_auto_convert()?;
     }
     Ok(())
   }
 }
 
 struct P2pChannel<'a> {
-  tx: Sender<Vec<u8>>,
   mux_channel: &'a TcpMuxChannel,
   channel_id: String,
 }
@@ -203,10 +200,10 @@ impl P2pChannel<'_> {
       data.to_vec(),
     ).encode();
 
-    self.tx.send(data).await.res_auto_convert()
+    self.mux_channel.tx.send(data).await.res_auto_convert()
   }
 
   pub async fn close(&mut self) -> Result<()> {
-    self.mux_channel.remove(&self.channel_id, &mut self.tx).await
+    self.mux_channel.remove(&self.channel_id).await
   }
 }

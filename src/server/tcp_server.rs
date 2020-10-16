@@ -8,13 +8,13 @@ use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
 
-use crate::commons::{Address, KEEPALIVE_DURATION, StdResAutoConvert};
+use crate::commons::{Address, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 
 type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
-  let mut listener = TcpListener::bind(host).await?;
+  let listener = TcpListener::bind(host).await?;
   info!("Server bind {:?}", listener.local_addr()?);
 
   let rc4 = Rc4::new(key.as_bytes());
@@ -35,10 +35,6 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
-    error!("{}", e);
-  }
-
   let (tcp_rx, mut tcp_tx) = socket.into_split();
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
@@ -61,10 +57,10 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
         db.insert(channel_id.clone(), child_mpsc_tx);
 
         let db = db.clone();
-        let mut mpsc_tx = mpsc_tx.clone();
+        let mpsc_tx = mpsc_tx.clone();
 
         tokio::spawn(async move {
-          if let Err(e) = child_channel_process(&channel_id, addr, &mut mpsc_tx, child_mpsc_rx).await {
+          if let Err(e) = child_channel_process(&channel_id, addr, &mpsc_tx, child_mpsc_rx).await {
             error!("{}", e);
           }
 
@@ -90,13 +86,8 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &mut Sender<Vec<u8>>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
+                               mpsc_tx: &Sender<Vec<u8>>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
-
-  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
-    error!("{}", e);
-  }
-
   let (mut tcp_rx, mut tcp_tx) = socket.into_split();
 
   tokio::spawn(async move {

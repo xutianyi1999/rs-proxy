@@ -6,21 +6,14 @@ use tokio::net::{TcpListener, TcpStream};
 use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
-use crate::client::quic_client::QuicChannel;
 use crate::client::tcp_client::TcpMuxChannel;
 use crate::commons::{Address, StdResAutoConvert};
 
 mod tcp_client;
 mod socks5;
-mod quic_client;
 
 lazy_static! {
-  static ref CONNECTION_POOL: Mutex<ConnectionPool<Channel>> = Mutex::new(ConnectionPool::new());
-}
-
-enum Channel {
-  Tcp(Arc<TcpMuxChannel>),
-  Quic(QuicChannel),
+  static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
 }
 
 pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
@@ -28,24 +21,12 @@ pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
     .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
     .collect();
 
-  if !tcp_list.is_empty() {
-    tcp_client::start(tcp_list)?;
-  }
-
-  let quic_list: Vec<&Yaml> = remote_hosts.iter()
-    .filter(|e| e["protocol"].as_str().unwrap().eq("quic"))
-    .collect();
-
-  if !quic_list.is_empty() {
-    quic_client::start(bind_addr, quic_list).await?;
-  }
-
+  tcp_client::start(tcp_list)?;
   socks5_server_bind(bind_addr).await
 }
 
 async fn socks5_server_bind(host: &str) -> Result<()> {
-  let mut tcp_listener = TcpListener::bind(host).await?;
-
+  let tcp_listener = TcpListener::bind(host).await?;
   info!("Client bind {}", tcp_listener.local_addr()?);
 
   while let Ok((socket, _)) = tcp_listener.accept().await {
@@ -67,14 +48,7 @@ async fn process(mut socket: TcpStream) -> Result<()> {
     None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
   };
 
-  match &*channel {
-    Channel::Tcp(tcp_mux_channel) => {
-      tcp_mux_channel.exec_local_inbound_handler(socket, address).await
-    }
-    Channel::Quic(quic_channel) => {
-      quic_channel.open_bi(socket, address).await
-    }
-  }
+  channel.exec_local_inbound_handler(socket, address).await
 }
 
 async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
@@ -83,20 +57,20 @@ async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
   Ok(addr)
 }
 
-pub struct ConnectionPool<T> {
-  db: HashMap<String, Arc<T>>,
+pub struct ConnectionPool {
+  db: HashMap<String, Arc<TcpMuxChannel>>,
   keys: Vec<String>,
   count: usize,
 }
 
-impl<T> ConnectionPool<T> {
-  pub fn new() -> ConnectionPool<T> {
+impl ConnectionPool {
+  pub fn new() -> ConnectionPool {
     ConnectionPool { db: HashMap::new(), keys: Vec::new(), count: 0 }
   }
 
-  pub fn put(&mut self, k: String, v: T) {
+  pub fn put(&mut self, k: String, v: Arc<TcpMuxChannel>) {
     self.keys.push(k.clone());
-    self.db.insert(k, Arc::new(v));
+    self.db.insert(k, v);
   }
 
   pub fn remove(&mut self, key: &str) -> Result<()> {
@@ -107,7 +81,7 @@ impl<T> ConnectionPool<T> {
     Ok(())
   }
 
-  pub fn get(&mut self) -> Option<Arc<T>> {
+  pub fn get(&mut self) -> Option<Arc<TcpMuxChannel>> {
     if self.keys.len() == 0 {
       return Option::None;
     } else if self.keys.len() == 1 {
