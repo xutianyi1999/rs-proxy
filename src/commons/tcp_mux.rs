@@ -3,6 +3,7 @@ use bytes::{Buf, BufMut, Bytes};
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
+use socket2::Socket;
 use tokio::io::{BufReader, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -152,36 +153,36 @@ fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> 
 }
 
 pub trait TcpStreamExt {
-  fn set_keepalive(&self);
+  fn set_keepalive(&self) -> Socket;
 }
 
 impl TcpStreamExt for TcpStream {
-  fn set_keepalive(&self) {
-    set_keepalive(self);
+  fn set_keepalive(&self) -> Socket {
+    set_keepalive(self)
   }
 }
 
 const KEEPALIVE_DURATION: Option<Duration> = Option::Some(Duration::from_secs(120));
 
 #[cfg(target_os = "windows")]
-fn set_keepalive(socket: &TcpStream) {
-  use socket2::Socket;
+fn set_keepalive(socket: &TcpStream) -> Socket {
   use std::os::windows::io::{AsRawSocket, FromRawSocket};
 
   let socket = unsafe { Socket::from_raw_socket(socket.as_raw_socket()) };
   if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
     error!("{}", e);
   }
+  socket
 }
 
 #[cfg(target_os = "linux")]
-fn set_keepalive(socket: &TcpStream) {
-  use socket2::Socket;
+fn set_keepalive(socket: &TcpStream) -> Socket {
   use std::os::unix::io::{AsRawFd, FromRawFd};
 
   let socket = unsafe { Socket::from_raw_fd(socket.as_raw_fd()) };
   if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
     error!("{}", e);
   }
+  socket
 }
 

@@ -35,7 +35,7 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  socket.set_keepalive();
+  let _fd = socket.set_keepalive();
   let (tcp_rx, mut tcp_tx) = socket.into_split();
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
@@ -90,7 +90,7 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 async fn child_channel_process(channel_id: &String, addr: Address,
                                mpsc_tx: &Sender<Vec<u8>>, mut child_rx: DuplexStream) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
-  socket.set_keepalive();
+  let _fd = socket.set_keepalive();
   let (mut tcp_rx, mut tcp_tx) = socket.into_split();
 
   tokio::spawn(async move {
