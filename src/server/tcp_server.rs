@@ -2,16 +2,16 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{BufReader, Result};
+use tokio::io::{BufReader, DuplexStream, Result};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Sender, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::Sender;
 
 use crate::commons::{Address, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
 
-type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
+type DB = Arc<DashMap<String, DuplexStream>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
@@ -53,14 +53,15 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
     match msg {
       Msg::CONNECT(channel_id, addr) => {
-        let (child_mpsc_tx, child_mpsc_rx) = mpsc::unbounded_channel::<Vec<u8>>();
-        db.insert(channel_id.clone(), child_mpsc_tx);
+        // 10MB
+        let (child_rx, child_tx) = tokio::io::duplex(10485760);
+        db.insert(channel_id.clone(), child_tx);
 
         let db = db.clone();
         let mpsc_tx = mpsc_tx.clone();
 
         tokio::spawn(async move {
-          if let Err(e) = child_channel_process(&channel_id, addr, &mpsc_tx, child_mpsc_rx).await {
+          if let Err(e) = child_channel_process(&channel_id, addr, &mpsc_tx, child_rx).await {
             error!("{}", e);
           }
 
@@ -75,9 +76,9 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
         db.remove(&channel_id);
       }
       Msg::DATA(channel_id, data) => {
-        if let Some(tx) = db.get(&channel_id) {
-          if let Err(e) = tx.send(data) {
-            error!("{}", e.to_string())
+        if let Some(mut tx) = db.get_mut(&channel_id) {
+          if let Err(e) = tx.write_all(&data).await {
+            error!("{}", e)
           }
         }
       }
@@ -86,17 +87,14 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 }
 
 async fn child_channel_process(channel_id: &String, addr: Address,
-                               mpsc_tx: &Sender<Vec<u8>>, mut mpsc_rx: UnboundedReceiver<Vec<u8>>) -> Result<()> {
+                               mpsc_tx: &Sender<Vec<u8>>, mut child_rx: DuplexStream) -> Result<()> {
   let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
   let (mut tcp_rx, mut tcp_tx) = socket.into_split();
 
   tokio::spawn(async move {
-    while let Some(data) = mpsc_rx.recv().await {
-      if let Err(e) = tcp_tx.write_all(&data).await {
-        error!("{}", e);
-        return;
-      }
-    };
+    if let Err(e) = tokio::io::copy(&mut child_rx, &mut tcp_tx).await {
+      error!("{}", e)
+    }
   });
 
   let mut buff = vec![0u8; 65530];

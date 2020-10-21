@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{BufReader, Error, ErrorKind, Result};
+use tokio::io::{BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::OwnedReadHalf;
 use tokio::net::TcpStream;
 use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, RwLock};
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::Sender;
 use yaml_rust::Yaml;
 
 use crate::client::CONNECTION_POOL;
@@ -83,7 +83,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 }
 
 // 本地管道映射
-pub type DB = Arc<DashMap<String, UnboundedSender<Vec<u8>>>>;
+pub type DB = Arc<DashMap<String, DuplexStream>>;
 
 pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
@@ -107,9 +107,9 @@ impl TcpMuxChannel {
 
       match msg {
         Msg::DATA(channel_id, data) => {
-          if let Some(tx) = self.db.get(&channel_id) {
-            if let Err(e) = tx.send(data) {
-              error!("{}", e.to_string())
+          if let Some(mut tx) = self.db.get_mut(&channel_id) {
+            if let Err(e) = tx.write_all(&data).await {
+              error!("{}", e)
             }
           }
         }
@@ -129,18 +129,16 @@ impl TcpMuxChannel {
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, socket: TcpStream, addr: Address) -> Result<()> {
     let (mut tcp_rx, mut tcp_tx) = socket.into_split();
-    let (mpsc_tx, mut mpsc_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+    // 10MB
+    let (mut child_rx, child_tx) = tokio::io::duplex(10485760);
 
     tokio::spawn(async move {
-      while let Some(data) = mpsc_rx.recv().await {
-        if let Err(e) = tcp_tx.write_all(&data).await {
-          error!("{}", e);
-          return;
-        }
-      };
+      if let Err(e) = tokio::io::copy(&mut child_rx, &mut tcp_tx).await {
+        error!("{}", e)
+      }
     });
 
-    let p2p_channel = self.register(addr, mpsc_tx).await?;
+    let p2p_channel = self.register(addr, child_tx).await?;
     let mut buff = vec![0u8; 65530];
 
     loop {
@@ -160,7 +158,7 @@ impl TcpMuxChannel {
     }
   }
 
-  async fn register(&self, addr: Address, mpsc_tx: UnboundedSender<Vec<u8>>) -> Result<P2pChannel<'_>> {
+  async fn register(&self, addr: Address, child_tx: DuplexStream) -> Result<P2pChannel<'_>> {
     let is_close_lock_guard = self.is_close.read().await;
     if *is_close_lock_guard == true {
       return Err(Error::new(ErrorKind::Other, "Is closed"));
@@ -171,7 +169,7 @@ impl TcpMuxChannel {
     self.tx.send(Msg::CONNECT(channel_id.clone(), addr).encode()).await
       .res_auto_convert()?;
 
-    self.db.insert(channel_id.clone(), mpsc_tx);
+    self.db.insert(channel_id.clone(), child_tx);
 
     let p2p_channel = P2pChannel {
       mux_channel: self,
