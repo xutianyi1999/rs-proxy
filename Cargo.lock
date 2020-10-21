@@ -600,6 +600,7 @@ dependencies = [
  "log4rs",
  "nanoid",
  "rust-crypto",
+ "socket2",
  "tokio",
  "yaml-rust",
 ]
