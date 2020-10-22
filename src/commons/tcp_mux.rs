@@ -6,8 +6,8 @@ use crypto::symmetriccipher::{Decryptor, Encryptor};
 use socket2::Socket;
 use tokio::io::{BufReader, ErrorKind, Result};
 use tokio::io::Error;
+use tokio::net::{TcpSocket, TcpStream};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::TcpStream;
 use tokio::prelude::*;
 use tokio::prelude::io::AsyncWriteExt;
 use tokio::time::Duration;
@@ -152,12 +152,18 @@ fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> 
   Ok(out)
 }
 
-pub trait TcpStreamExt {
-  fn set_keepalive(&self) -> Socket;
+pub trait TcpSocketExt {
+  fn set_keepalive(&self) -> tokio::io::Result<Socket>;
 }
 
-impl TcpStreamExt for TcpStream {
-  fn set_keepalive(&self) -> Socket {
+impl TcpSocketExt for TcpStream {
+  fn set_keepalive(&self) -> tokio::io::Result<Socket> {
+    set_keepalive(self)
+  }
+}
+
+impl TcpSocketExt for TcpSocket {
+  fn set_keepalive(&self) -> tokio::io::Result<Socket> {
     set_keepalive(self)
   }
 }
@@ -165,24 +171,20 @@ impl TcpStreamExt for TcpStream {
 const KEEPALIVE_DURATION: Option<Duration> = Option::Some(Duration::from_secs(120));
 
 #[cfg(target_os = "windows")]
-fn set_keepalive(socket: &TcpStream) -> Socket {
-  use std::os::windows::io::{AsRawSocket, FromRawSocket};
+fn set_keepalive<S: std::os::windows::io::AsRawSocket>(socket: &S) -> tokio::io::Result<Socket> {
+  use std::os::windows::io::FromRawSocket;
 
   let socket = unsafe { Socket::from_raw_socket(socket.as_raw_socket()) };
-  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
-    error!("{}", e);
-  }
-  socket
+  socket.set_keepalive(KEEPALIVE_DURATION)?;
+  Ok(socket)
 }
 
 #[cfg(target_os = "linux")]
-fn set_keepalive(socket: &TcpStream) -> Socket {
-  use std::os::unix::io::{AsRawFd, FromRawFd};
+fn set_keepalive<S: std::os::unix::io::AsRawFd>(socket: &S) -> tokio::io::Result<Socket> {
+  use std::os::unix::io::FromRawFd;
 
   let socket = unsafe { Socket::from_raw_fd(socket.as_raw_fd()) };
-  if let Err(e) = socket.set_keepalive(KEEPALIVE_DURATION) {
-    error!("{}", e);
-  }
-  socket
+  socket.set_keepalive(KEEPALIVE_DURATION)?;
+  Ok(socket)
 }
 

@@ -3,13 +3,13 @@ use std::sync::Arc;
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, DuplexStream, Result};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
-use crate::commons::{Address, StdResAutoConvert};
-use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpStreamExt};
+use crate::commons::{Address, OptionConvert, StdResAutoConvert};
+use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpSocketExt};
 
 type DB = Arc<DashMap<String, DuplexStream>>;
 
@@ -35,7 +35,7 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 }
 
 async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  let _fd = socket.set_keepalive();
+  let _fd = socket.set_keepalive()?;
   let (tcp_rx, mut tcp_tx) = socket.into_split();
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
@@ -89,8 +89,11 @@ async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> 
 
 async fn child_channel_process(channel_id: &String, addr: Address,
                                mpsc_tx: &Sender<Vec<u8>>, mut child_rx: DuplexStream) -> Result<()> {
-  let socket = TcpStream::connect((addr.0.as_str(), addr.1)).await?;
-  let _fd = socket.set_keepalive();
+  let tcp_socket = TcpSocket::new_v4()?;
+  let _fd = tcp_socket.set_keepalive()?;
+  let addr = tokio::net::lookup_host((addr.0.as_str(), addr.1)).await?.next().option_to_res("Address error")?;
+  let socket = tcp_socket.connect(addr).await?;
+
   let (mut tcp_rx, mut tcp_tx) = socket.into_split();
 
   tokio::spawn(async move {
