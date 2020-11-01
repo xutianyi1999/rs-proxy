@@ -187,7 +187,7 @@ fn set_keepalive<S: std::os::unix::io::AsRawFd>(socket: &S) -> tokio::io::Result
   use std::os::unix::io::FromRawFd;
 
   unsafe {
-    let socket = Socket::from_raw_fd(socket.as_raw_socket());
+    let socket = Socket::from_raw_fd(socket.as_raw_fd());
     socket.set_keepalive(KEEPALIVE_DURATION)?;
     std::mem::forget(socket);
   };
