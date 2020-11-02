@@ -14,19 +14,8 @@ key: "123a"
 # 缓冲队列容量
 buff_size: 3000
 ```
-### quic-server
-```yaml
----
-# 本机地址
-host: 0.0.0.0:12346
-# 协议
-protocol: quic
-# 证书路径
-cert: ./key/cert.der
-# 私钥路径
-private_key: ./key/priv_key
-```
 ### client
+
 ```yaml
 ---
 # 本地socks5绑定地址
@@ -45,17 +34,6 @@ remote:
     key: "123a"
     # 缓冲队列容量
     buff_size: 3000
-
-    # 名称
-  - name: local-quic
-    # 协议
-    protocol: quic
-    # ip 地址
-    host: 127.0.0.1:12346
-    # 证书路径
-    cert: ./key/cert.der
-    # subjectAltName
-    server_name: local
 ```
 ## Usage
 ### server

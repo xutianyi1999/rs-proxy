@@ -179,6 +179,7 @@ impl TcpMuxChannel {
   }
 
   async fn remove(&self, channel_id: &String) -> Result<()> {
+    // 可能存在死锁
     if let Some(_) = self.db.remove(channel_id) {
       self.tx.send(Msg::DISCONNECT(channel_id.clone()).encode()).await.res_auto_convert()?;
     }
