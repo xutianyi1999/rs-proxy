@@ -13,7 +13,7 @@ pub async fn start(config: &Yaml) -> Result<()> {
   match protocol {
     "tcp" => {
       let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
-      let buff_size = config["buff_size"].as_i64().option_to_res(CONFIG_ERROR)?;
+      let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
       tcp_server::start(host, key, buff_size as usize).await
     }
     _ => Err(Error::new(ErrorKind::Other, CONFIG_ERROR))

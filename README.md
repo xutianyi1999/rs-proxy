@@ -12,7 +12,7 @@ protocol: tcp
 # 密钥
 key: "123a"
 # 缓冲队列容量
-buff_size: 3000
+buffSize: 3000
 ```
 ### client
 
@@ -33,7 +33,7 @@ remote:
     # 密钥
     key: "123a"
     # 缓冲队列容量
-    buff_size: 3000
+    buffSize: 3000
 ```
 ## Usage
 ### server
