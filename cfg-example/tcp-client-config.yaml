@@ -6,7 +6,7 @@ remote:
   # 名称
   - name: local
     # 缓冲队列容量
-    buff_size: 1000
+    buffSize: 1000
     # 协议
     protocol: tcp
     # 连接数
