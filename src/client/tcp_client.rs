@@ -61,19 +61,24 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     let cmc = Arc::new(cmc);
 
     // 读取本地管道数据，发送到远端
-    tokio::spawn(async move {
+    let f1 = async move {
       while let Some(msg) = mpsc_rx.recv().await {
-        if let Err(e) = tcp_tx.write_msg(msg, &mut rc4).await {
-          error!("{}", e);
-          return;
-        }
+        tcp_tx.write_msg(msg, &mut rc4).await?;
       };
-    });
+      Ok(())
+    };
+
+    let f2 = cmc.exec_remote_inbound_handler(tcp_rx, rc4);
 
     CONNECTION_POOL.lock().res_auto_convert()?
       .put(channel_id.clone(), cmc.clone());
 
-    if let Err(e) = cmc.exec_remote_inbound_handler(tcp_rx, rc4).await {
+    let res = tokio::select! {
+      res = f1 => res,
+      res = f2 => res
+    };
+
+    if let Err(e) = res {
       error!("{}", e);
     }
 
@@ -132,29 +137,35 @@ impl TcpMuxChannel {
     // 10MB
     let (mut child_rx, child_tx) = tokio::io::duplex(10485760);
 
-    tokio::spawn(async move {
-      if let Err(e) = tokio::io::copy(&mut child_rx, &mut tcp_tx).await {
-        error!("{}", e)
-      }
-    });
+    let f1 = async move {
+      let _ = tokio::io::copy(&mut child_rx, &mut tcp_tx).await?;
+      Ok(())
+    };
 
-    let p2p_channel = self.register(addr, child_tx).await?;
-    let mut buff = vec![0u8; 65530];
+    let f2 = async move {
+      let p2p_channel = self.register(addr, child_tx).await?;
+      let mut buff = vec![0u8; 65530];
 
-    loop {
-      match tcp_rx.read(&mut buff).await {
-        Ok(n) if n == 0 => return p2p_channel.close().await,
-        Ok(n) => {
-          let slice = &buff[..n];
-          p2p_channel.write(slice).await?;
-        }
-        Err(e) => {
-          if let Err(e) = p2p_channel.close().await {
-            error!("{}", e);
+      loop {
+        match tcp_rx.read(&mut buff).await {
+          Ok(n) if n == 0 => return p2p_channel.close().await,
+          Ok(n) => {
+            let slice = &buff[..n];
+            p2p_channel.write(slice).await?;
           }
-          return Err(e);
-        }
-      };
+          Err(e) => {
+            if let Err(e) = p2p_channel.close().await {
+              error!("{}", e);
+            }
+            return Err(e);
+          }
+        };
+      }
+    };
+
+    tokio::select! {
+      res = f1 => res,
+      res = f2 => res
     }
   }
 
