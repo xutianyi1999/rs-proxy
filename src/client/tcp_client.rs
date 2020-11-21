@@ -79,6 +79,8 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
       res = f2 => res
     };
 
+    cmc.close().await;
+
     if let Err(e) = res {
       error!("{}", e);
     }
@@ -102,14 +104,17 @@ impl TcpMuxChannel {
     TcpMuxChannel { tx, db: Arc::new(DashMap::new()), is_close: RwLock::new(false) }
   }
 
+  pub async fn close(&self) {
+    let mut flag_lock_guard = self.is_close.write().await;
+    *flag_lock_guard = true;
+    self.db.clear();
+  }
+
   pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, mut rc4: Rc4) -> Result<()> {
     let mut rx = BufReader::with_capacity(10485760, rx);
 
-    let res = loop {
-      let msg = match rx.read_msg(&mut rc4).await {
-        Ok(msg) => msg,
-        Err(e) => break Err(e)
-      };
+    loop {
+      let msg = rx.read_msg(&mut rc4).await?;
 
       match msg {
         Msg::DATA(channel_id, data) => {
@@ -122,52 +127,44 @@ impl TcpMuxChannel {
         Msg::DISCONNECT(channel_id) => {
           self.db.remove(&channel_id);
         }
-        _ => break Err(Error::new(ErrorKind::Other, "Message error"))
+        _ => return Err(Error::new(ErrorKind::Other, "Message error"))
       }
     };
-
-    let mut flag_lock_guard = self.is_close.write().await;
-    *flag_lock_guard = true;
-    self.db.clear();
-    res
   }
 
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, mut socket: TcpStream, addr: Address) -> Result<()> {
-    let (mut tcp_rx, mut tcp_tx) = socket.split();
     // 10MB
     let (mut child_rx, child_tx) = tokio::io::duplex(10485760);
+    let p2p_channel = self.register(addr, child_tx).await?;
+    let (mut tcp_rx, mut tcp_tx) = socket.split();
 
     let f1 = async move {
       let _ = tokio::io::copy(&mut child_rx, &mut tcp_tx).await?;
       Ok(())
     };
 
-    let f2 = async move {
-      let p2p_channel = self.register(addr, child_tx).await?;
+    let f2 = async {
       let mut buff = vec![0u8; 65530];
 
       loop {
         match tcp_rx.read(&mut buff).await {
-          Ok(n) if n == 0 => return p2p_channel.close().await,
-          Ok(n) => {
-            let slice = &buff[..n];
-            p2p_channel.write(slice).await?;
-          }
-          Err(e) => {
-            if let Err(e) = p2p_channel.close().await {
-              error!("{}", e);
-            }
-            return Err(e);
-          }
+          Ok(n) if n == 0 => return Ok(()),
+          Ok(n) => p2p_channel.write(&buff[..n]).await?,
+          Err(e) => return Err(e)
         };
       }
     };
 
-    tokio::select! {
+    let res = tokio::select! {
       res = f1 => res,
       res = f2 => res
+    };
+
+    if let Err(e) = p2p_channel.close().await {
+      error!("{}", e);
     }
+    res
   }
 
   async fn register(&self, addr: Address, child_tx: DuplexStream) -> Result<P2pChannel<'_>> {
