@@ -7,7 +7,7 @@ use socket2::Socket;
 use tokio::io::{BufReader, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
+use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::prelude::*;
 use tokio::prelude::io::AsyncWriteExt;
 use tokio::time::Duration;
@@ -86,7 +86,7 @@ fn decode(data: Vec<u8>) -> Result<Msg> {
   Ok(msg)
 }
 
-async fn read_msg(rx: &mut BufReader<OwnedReadHalf>) -> Result<Vec<u8>> {
+async fn read_msg(rx: &mut BufReader<ReadHalf<'_>>) -> Result<Vec<u8>> {
   let len = rx.read_u16().await?;
   let mut msg = vec![0u8; len as usize];
   rx.read_exact(&mut msg).await?;
@@ -103,7 +103,7 @@ pub trait MsgWriteHandler {
 }
 
 #[async_trait]
-impl MsgWriteHandler for OwnedWriteHalf {
+impl MsgWriteHandler for WriteHalf<'_> {
   async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()> {
     let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
@@ -121,7 +121,7 @@ pub trait MsgReadHandler {
 }
 
 #[async_trait]
-impl MsgReadHandler for BufReader<OwnedReadHalf> {
+impl MsgReadHandler for BufReader<ReadHalf<'_>> {
   async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg> {
     let data = read_msg(self).await?;
     let data = crypto(&data, rc4, MODE::DECRYPT)?;

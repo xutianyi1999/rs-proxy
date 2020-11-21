@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
 use tokio::io::{BufReader, DuplexStream, Error, ErrorKind, Result};
-use tokio::net::tcp::OwnedReadHalf;
+use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
 use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, RwLock};
@@ -46,14 +46,15 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
   let channel_id = tcp_mux::create_channel_id();
 
   loop {
-    let (tcp_rx, mut tcp_tx) = match TcpStream::connect(host).await {
-      Ok(socket) => socket.into_split(),
+    let mut socket = match TcpStream::connect(host).await {
+      Ok(socket) => socket,
       Err(e) => {
         error!("{}", e);
         continue;
       }
     };
 
+    let (tcp_rx, mut tcp_tx) = socket.split();
     info!("{} connected", server_name);
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
@@ -101,7 +102,7 @@ impl TcpMuxChannel {
     TcpMuxChannel { tx, db: Arc::new(DashMap::new()), is_close: RwLock::new(false) }
   }
 
-  pub async fn exec_remote_inbound_handler(&self, rx: OwnedReadHalf, mut rc4: Rc4) -> Result<()> {
+  pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, mut rc4: Rc4) -> Result<()> {
     let mut rx = BufReader::with_capacity(10485760, rx);
 
     let res = loop {
@@ -132,8 +133,8 @@ impl TcpMuxChannel {
   }
 
   /// 本地连接处理器
-  pub async fn exec_local_inbound_handler(&self, socket: TcpStream, addr: Address) -> Result<()> {
-    let (mut tcp_rx, mut tcp_tx) = socket.into_split();
+  pub async fn exec_local_inbound_handler(&self, mut socket: TcpStream, addr: Address) -> Result<()> {
+    let (mut tcp_rx, mut tcp_tx) = socket.split();
     // 10MB
     let (mut child_rx, child_tx) = tokio::io::duplex(10485760);
 

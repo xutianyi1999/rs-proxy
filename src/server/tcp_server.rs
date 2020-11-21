@@ -34,9 +34,9 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   Ok(())
 }
 
-async fn process(socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
   socket.set_keepalive()?;
-  let (tcp_rx, mut tcp_tx) = socket.into_split();
+  let (tcp_rx, mut tcp_tx) = socket.split();
   let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
 
@@ -97,9 +97,9 @@ async fn child_channel_process(channel_id: &String, addr: Address,
   let tcp_socket = TcpSocket::new_v4()?;
   tcp_socket.set_keepalive()?;
   let addr = tokio::net::lookup_host((addr.0.as_str(), addr.1)).await?.next().option_to_res("Address error")?;
-  let socket = tcp_socket.connect(addr).await?;
 
-  let (mut tcp_rx, mut tcp_tx) = socket.into_split();
+  let mut socket = tcp_socket.connect(addr).await?;
+  let (mut tcp_rx, mut tcp_tx) = socket.split();
 
   let f1 = async move {
     let _ = tokio::io::copy(&mut child_rx, &mut tcp_tx).await?;
