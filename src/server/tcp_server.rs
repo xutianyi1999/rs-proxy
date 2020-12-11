@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crypto::rc4::Rc4;
@@ -94,9 +95,13 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
 
 async fn child_channel_process(channel_id: &String, addr: Address,
                                mpsc_tx: &Sender<Vec<u8>>, mut child_rx: DuplexStream) -> Result<()> {
-  let tcp_socket = TcpSocket::new_v4()?;
+  let addr = tokio::net::lookup_host((addr.0.as_str(), addr.1)).await?.next().option_to_res("Target address error")?;
+
+  let tcp_socket = match addr {
+    SocketAddr::V4(_) => TcpSocket::new_v4(),
+    SocketAddr::V6(_) => TcpSocket::new_v6()
+  }?;
   tcp_socket.set_keepalive()?;
-  let addr = tokio::net::lookup_host((addr.0.as_str(), addr.1)).await?.next().option_to_res("Address error")?;
 
   let mut socket = tcp_socket.connect(addr).await?;
   let (mut tcp_rx, mut tcp_tx) = socket.split();
