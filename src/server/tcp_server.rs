@@ -16,7 +16,7 @@ type DB = Arc<DashMap<String, DuplexStream>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
-  info!("Server bind {:?}", listener.local_addr()?);
+  info!("Listening on {}", listener.local_addr()?);
 
   let rc4 = Rc4::new(key.as_bytes());
 

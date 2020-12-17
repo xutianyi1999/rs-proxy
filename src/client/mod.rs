@@ -27,7 +27,7 @@ pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
 
 async fn socks5_server_bind(host: &str) -> Result<()> {
   let tcp_listener = TcpListener::bind(host).await?;
-  info!("Client bind {}", tcp_listener.local_addr()?);
+  info!("Listening on socks5://{}", tcp_listener.local_addr()?);
 
   while let Ok((socket, _)) = tcp_listener.accept().await {
     tokio::spawn(async move {

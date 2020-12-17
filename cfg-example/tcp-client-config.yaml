@@ -1,6 +1,8 @@
 ---
-# 本地socks5绑定地址
-host: 0.0.0.0:12333
+# socks5 监听地址
+socks5Listen: 0.0.0.0:12333
+# http/https 监听地址
+httpListen: 0.0.0.0:10800
 # 服务端地址 (多个)
 remote:
   # 名称
