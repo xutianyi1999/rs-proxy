@@ -56,7 +56,7 @@ async fn process() -> Result<()> {
 
       let f1 = tokio::task::spawn_blocking(move || {
         if let Err(e) = start_http_proxy_server(&http_listen, &socks5_addr) {
-          eprintln!("{}", e)
+          error!("{}", e)
         }
       });
 
