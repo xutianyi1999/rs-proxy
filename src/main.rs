@@ -76,7 +76,7 @@ async fn process() -> Result<()> {
 
 fn logger_init() -> Result<()> {
   let stdout = ConsoleAppender::builder()
-    .encoder(Box::new(PatternEncoder::new("[Console] {d} - {l} -{t} - {m}{n}")))
+    .encoder(Box::new(PatternEncoder::new("[Console] {d(%Y-%m-%d %H:%M:%S)} - {l} - {m}{n}")))
     .build();
 
   let config = Config::builder()
