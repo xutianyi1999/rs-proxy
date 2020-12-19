@@ -6,7 +6,9 @@ extern crate log;
 extern crate nanoid;
 
 use std::env;
+use std::net::SocketAddr;
 use std::os::raw::c_char;
+use std::str::FromStr;
 
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -52,10 +54,11 @@ async fn process() -> Result<()> {
       let http_listen = config["httpListen"].as_str().option_to_res(CONFIG_ERROR)?.to_string();
       let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
 
-      let socks5_addr = socks5_listen.clone();
+      let temp = SocketAddr::from_str(&socks5_listen).res_auto_convert()?;
+      let local_socks5_addr = format!("127.0.0.1:{}", temp.port());
 
       let f1 = tokio::task::spawn_blocking(move || {
-        if let Err(e) = start_http_proxy_server(&http_listen, &socks5_addr) {
+        if let Err(e) = start_http_proxy_server(&http_listen, &local_socks5_addr) {
           error!("{}", e)
         }
       });
