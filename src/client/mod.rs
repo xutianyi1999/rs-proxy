@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::os::raw::c_char;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use tokio::io::{Error, ErrorKind, Result};
@@ -16,13 +19,31 @@ lazy_static! {
   static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
 }
 
-pub async fn start(bind_addr: &str, remote_hosts: &Array) -> Result<()> {
+pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> Result<()> {
   let tcp_list: Vec<&Yaml> = remote_hosts.iter()
     .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
     .collect();
 
   tcp_client::start(tcp_list)?;
-  socks5_server_bind(bind_addr).await
+
+  let port = SocketAddr::from_str(socks5_addr.clone()).res_auto_convert()?.port();
+  let http_addr = String::from(http_addr);
+
+  let f1 = tokio::task::spawn_blocking(move || {
+    let local_socks5_addr = format!("127.0.0.1:{}", port);
+    let res = start_http_proxy_server(&http_addr, &local_socks5_addr);
+
+    if let Err(e) = res {
+      error!("{}", e)
+    }
+  });
+
+  let f2 = socks5_server_bind(socks5_addr);
+
+  tokio::select! {
+    res = f1 => res.res_auto_convert(),
+    res = f2 => res,
+  }
 }
 
 async fn socks5_server_bind(host: &str) -> Result<()> {
@@ -99,4 +120,18 @@ impl ConnectionPool {
     let key = self.keys.get(self.count)?;
     self.db.get(key).cloned()
   }
+}
+
+fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
+  let lib = libloading::Library::new("./httptosocks").res_auto_convert()?;
+
+  unsafe {
+    let start: libloading::Symbol<unsafe extern fn(*const c_char, u8, *const c_char, u8) -> ()> = lib.get(b"start").res_auto_convert()?;
+
+    start(bind_addr.as_ptr() as *const c_char,
+          bind_addr.len() as u8,
+          socks5_addr.as_ptr() as *const c_char,
+          socks5_addr.len() as u8);
+  };
+  Ok(())
 }

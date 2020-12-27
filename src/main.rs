@@ -6,9 +6,6 @@ extern crate log;
 extern crate nanoid;
 
 use std::env;
-use std::net::SocketAddr;
-use std::os::raw::c_char;
-use std::str::FromStr;
 
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Config, Root};
@@ -54,21 +51,7 @@ async fn process() -> Result<()> {
       let http_listen = config["httpListen"].as_str().option_to_res(CONFIG_ERROR)?.to_string();
       let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
 
-      let temp = SocketAddr::from_str(&socks5_listen).res_auto_convert()?;
-      let local_socks5_addr = format!("127.0.0.1:{}", temp.port());
-
-      let f1 = tokio::task::spawn_blocking(move || {
-        if let Err(e) = start_http_proxy_server(&http_listen, &local_socks5_addr) {
-          error!("{}", e)
-        }
-      });
-
-      let f2 = client::start(&socks5_listen, remote_hosts);
-
-      tokio::select! {
-        res = f1 => res.res_auto_convert(),
-        res = f2 => res,
-      }
+      client::start(&http_listen, &socks5_listen, remote_hosts).await
     }
     "server" => {
       server::start(config).await
@@ -90,19 +73,3 @@ fn logger_init() -> Result<()> {
   log4rs::init_config(config).res_auto_convert()?;
   Ok(())
 }
-
-fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
-  let lib = libloading::Library::new("./httptosocks").res_auto_convert()?;
-
-  unsafe {
-    let start: libloading::Symbol<unsafe extern fn(*const c_char, u8, *const c_char, u8, u8) -> ()> = lib.get(b"start").res_auto_convert()?;
-
-    start(bind_addr.as_ptr() as *const c_char,
-          bind_addr.len() as u8,
-          socks5_addr.as_ptr() as *const c_char,
-          socks5_addr.len() as u8,
-          1);
-  };
-  Ok(())
-}
-
