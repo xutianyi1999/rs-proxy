@@ -3,9 +3,8 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{BufReader, DuplexStream, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Result};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::prelude::*;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 

@@ -4,12 +4,10 @@ use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
 use socket2::Socket;
-use tokio::io::{BufReader, ErrorKind, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::net::tcp::{ReadHalf, WriteHalf};
-use tokio::prelude::*;
-use tokio::prelude::io::AsyncWriteExt;
 use tokio::time::Duration;
 
 use crate::commons::{Address, StdResAutoConvert, StdResConvert};

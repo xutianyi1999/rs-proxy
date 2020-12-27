@@ -1,9 +1,8 @@
 use std::convert::TryInto;
 use std::net::IpAddr;
 
-use tokio::io::{Error, ErrorKind, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
-use tokio::prelude::*;
 
 use crate::commons::{Address, StdResAutoConvert};
 

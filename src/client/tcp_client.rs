@@ -2,10 +2,9 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{BufReader, DuplexStream, Error, ErrorKind, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
-use tokio::prelude::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, RwLock};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::Yaml;
