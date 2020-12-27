@@ -15,7 +15,6 @@ key: "123a"
 buffSize: 3000
 ```
 ### client
-
 ```yaml
 ---
 # socks5监听地址
@@ -37,17 +36,27 @@ remote:
     # 缓冲队列容量
     buffSize: 3000
 ```
+
 ## Usage
+
 ### server
+
 ```shell script
 ./rs-proxy server server-config.yaml
 ```
+
 ### client
+
+编译httptosocks (https://github.com/xutianyi1999/httptosocks)
+
+将httptosocks动态链接库与rs-proxy执行文件保持同级目录
+
 ```shell script
 ./rs-proxy client client-config.yaml
 ```
 
 ## Build project
+
 ```shell script
 cargo build --release
 ```
