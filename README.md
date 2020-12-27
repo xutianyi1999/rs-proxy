@@ -5,7 +5,7 @@ socks5代理
 ### tcp-server
 ```yaml
 ---
-# 本机地址
+# 监听地址
 host: 0.0.0.0:12345
 # 协议
 protocol: tcp
@@ -18,8 +18,10 @@ buffSize: 3000
 
 ```yaml
 ---
-# 本地socks5绑定地址
-host: 0.0.0.0:12333
+# socks5监听地址
+socks5Listen: 0.0.0.0:12333
+# http/https监听地址
+httpListen: 0.0.0.0:10800
 # 服务端地址 (多个)
 remote:
     # 名称
