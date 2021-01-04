@@ -4,10 +4,9 @@ use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
 use socket2::Socket;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, ErrorKind, Result};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
-use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::time::Duration;
 
 use crate::commons::{Address, StdResAutoConvert, StdResConvert};
@@ -84,11 +83,17 @@ fn decode(data: Vec<u8>) -> Result<Msg> {
   Ok(msg)
 }
 
-async fn read_msg(rx: &mut BufReader<ReadHalf<'_>>) -> Result<Vec<u8>> {
-  let len = rx.read_u16().await?;
+async fn read_msg<A>(rx: &mut A) -> Result<Option<Vec<u8>>>
+  where A: AsyncRead + Unpin
+{
+  let len = match rx.read_u16().await {
+    Ok(len) => len,
+    Err(_) => return Ok(None)
+  };
+
   let mut msg = vec![0u8; len as usize];
   rx.read_exact(&mut msg).await?;
-  Ok(msg)
+  Ok(Some(msg))
 }
 
 pub fn create_channel_id() -> String {
@@ -101,7 +106,7 @@ pub trait MsgWriteHandler {
 }
 
 #[async_trait]
-impl MsgWriteHandler for WriteHalf<'_> {
+impl<A: AsyncWrite + Unpin + Send> MsgWriteHandler for A {
   async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()> {
     let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
 
@@ -115,15 +120,19 @@ impl MsgWriteHandler for WriteHalf<'_> {
 
 #[async_trait]
 pub trait MsgReadHandler {
-  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg>;
+  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Option<Msg>>;
 }
 
 #[async_trait]
-impl MsgReadHandler for BufReader<ReadHalf<'_>> {
-  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Msg> {
-    let data = read_msg(self).await?;
+impl<A: AsyncRead + Unpin + Send> MsgReadHandler for A {
+  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Option<Msg>> {
+    let data = match read_msg(self).await? {
+      Some(data) => data,
+      None => return Ok(None)
+    };
+
     let data = crypto(&data, rc4, MODE::DECRYPT)?;
-    decode(data)
+    Ok(Some(decode(data)?))
   }
 }
 

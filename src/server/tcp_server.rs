@@ -37,7 +37,7 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
   socket.set_keepalive()?;
   let (tcp_rx, mut tcp_tx) = socket.split();
-  let mut tcp_rx = BufReader::with_capacity(10485760, tcp_rx);
+  let mut tcp_rx = BufReader::new(tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
 
   let f1 = async move {
@@ -48,9 +48,7 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
   };
 
   let f2 = async move {
-    loop {
-      let msg = tcp_rx.read_msg(&mut rc4).await?;
-
+    while let Some(msg) = tcp_rx.read_msg(&mut rc4).await? {
       match msg {
         Msg::CONNECT(channel_id, addr) => {
           // 10MB
@@ -85,7 +83,9 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
         }
       };
     }
+    Ok(())
   };
+
   tokio::select! {
     res = f1 => res,
     res = f2 => res

@@ -110,11 +110,9 @@ impl TcpMuxChannel {
   }
 
   pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, mut rc4: Rc4) -> Result<()> {
-    let mut rx = BufReader::with_capacity(10485760, rx);
+    let mut rx = BufReader::new(rx);
 
-    loop {
-      let msg = rx.read_msg(&mut rc4).await?;
-
+    while let Some(msg) = rx.read_msg(&mut rc4).await? {
       match msg {
         Msg::DATA(channel_id, data) => {
           if let Some(mut tx) = self.db.get_mut(&channel_id) {
@@ -128,7 +126,8 @@ impl TcpMuxChannel {
         }
         _ => return Err(Error::new(ErrorKind::Other, "Message error"))
       }
-    };
+    }
+    Ok(())
   }
 
   /// 本地连接处理器
