@@ -11,7 +11,7 @@ use yaml_rust::Yaml;
 
 use crate::client::CONNECTION_POOL;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert, tcp_mux};
-use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler};
+use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpSocketExt};
 use crate::CONFIG_ERROR;
 
 pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
@@ -52,6 +52,8 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
         continue;
       }
     };
+
+    socket.set_keepalive()?;
 
     let (tcp_rx, mut tcp_tx) = socket.split();
     info!("{} connected", server_name);
