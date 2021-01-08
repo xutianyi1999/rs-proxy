@@ -128,10 +128,8 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
   unsafe {
     let start: libloading::Symbol<unsafe extern fn(*const c_char, u8, *const c_char, u8) -> ()> = lib.get(b"start").res_auto_convert()?;
 
-    start(bind_addr.as_ptr() as *const c_char,
-          bind_addr.len() as u8,
-          socks5_addr.as_ptr() as *const c_char,
-          socks5_addr.len() as u8);
+    start((bind_addr.to_owned() + "\0").as_ptr() as *const c_char,
+          (socks5_addr.to_owned() + "\0").as_ptr() as *const c_char);
   };
   Ok(())
 }
