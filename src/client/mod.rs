@@ -126,7 +126,7 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
   let lib = libloading::Library::new("./httptosocks").res_auto_convert()?;
 
   unsafe {
-    let start: libloading::Symbol<unsafe extern fn(*const c_char, u8, *const c_char, u8) -> ()> = lib.get(b"start").res_auto_convert()?;
+    let start: libloading::Symbol<unsafe extern fn(*const c_char, *const c_char) -> ()> = lib.get(b"start").res_auto_convert()?;
 
     start((bind_addr.to_owned() + "\0").as_ptr() as *const c_char,
           (socks5_addr.to_owned() + "\0").as_ptr() as *const c_char);
