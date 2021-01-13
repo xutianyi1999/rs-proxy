@@ -1,8 +1,9 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::rc::Rc;
 
 use crypto::rc4::Rc4;
-use dashmap::DashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Result};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::mpsc;
@@ -11,7 +12,7 @@ use tokio::sync::mpsc::Sender;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert};
 use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpSocketExt};
 
-type DB = Arc<DashMap<String, DuplexStream>>;
+type DB = Rc<RefCell<HashMap<String, DuplexStream>>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
@@ -21,14 +22,16 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
 
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
-      info!("{:?} connected", addr);
-      let db: DB = Arc::new(DashMap::new());
+      tokio::task::spawn_local(async move {
+        info!("{:?} connected", addr);
+        let db: DB = Rc::new(RefCell::new(HashMap::new()));
 
-      if let Err(e) = process(socket, &db, rc4, buff_size).await {
-        error!("{}", e);
-      };
+        if let Err(e) = process(socket, &db, rc4, buff_size).await {
+          error!("{}", e);
+        };
 
-      db.clear()
+        db.borrow_mut().clear();
+      });
     });
   };
   Ok(())
@@ -53,18 +56,17 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
         Msg::CONNECT(channel_id, addr) => {
           // 10MB
           let (child_rx, child_tx) = tokio::io::duplex(10485760);
-          db.insert(channel_id.clone(), child_tx);
+          db.borrow_mut().insert(channel_id.clone(), child_tx);
 
           let db = db.clone();
           let mpsc_tx = mpsc_tx.clone();
 
-          tokio::spawn(async move {
+          tokio::task::spawn_local(async move {
             if let Err(e) = child_channel_process(&channel_id, addr, &mpsc_tx, child_rx).await {
               error!("{}", e);
             }
 
-            // 可能存在死锁
-            if let Some(_) = db.remove(&channel_id) {
+            if let Some(_) = db.borrow_mut().remove(&channel_id) {
               if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id).encode()).await {
                 error!("{}", e);
               }
@@ -72,10 +74,10 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
           });
         }
         Msg::DISCONNECT(channel_id) => {
-          db.remove(&channel_id);
+          db.borrow_mut().remove(&channel_id);
         }
         Msg::DATA(channel_id, data) => {
-          if let Some(mut tx) = db.get_mut(&channel_id) {
+          if let Some(tx) = db.borrow_mut().get_mut(&channel_id) {
             if let Err(e) = tx.write_all(&data).await {
               error!("{}", e)
             }
