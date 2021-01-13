@@ -92,7 +92,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 }
 
 // 本地管道映射
-pub type DB = Arc<DashMap<String, DuplexStream>>;
+pub type DB = DashMap<String, DuplexStream>;
 
 pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
@@ -102,7 +102,7 @@ pub struct TcpMuxChannel {
 
 impl TcpMuxChannel {
   pub fn new(tx: Sender<Vec<u8>>) -> TcpMuxChannel {
-    TcpMuxChannel { tx, db: Arc::new(DashMap::new()), is_close: RwLock::new(false) }
+    TcpMuxChannel { tx, db: DashMap::new(), is_close: RwLock::new(false) }
   }
 
   pub async fn close(&self) {
