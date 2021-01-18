@@ -551,18 +551,18 @@ checksum = "3b181ba2dcf07aaccad5448e8ead58db5b742cf85dfe035e2227f137a539a189"
 name = "rs-proxy"
 version = "0.1.0"
 dependencies = [
- "async-trait",
- "bytes",
- "dashmap",
- "lazy_static",
- "libloading",
- "log",
- "log4rs",
- "nanoid",
- "rust-crypto",
- "socket2",
- "tokio",
- "yaml-rust",
+  "async-trait",
+  "bytes",
+  "dashmap",
+  "libloading",
+  "log",
+  "log4rs",
+  "nanoid",
+  "once_cell",
+  "rust-crypto",
+  "socket2",
+  "tokio",
+  "yaml-rust",
 ]
 
 [[package]]

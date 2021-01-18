@@ -4,6 +4,7 @@ use std::os::raw::c_char;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use once_cell::sync::Lazy;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
 use yaml_rust::Yaml;
@@ -15,9 +16,7 @@ use crate::commons::{Address, StdResAutoConvert};
 mod tcp_client;
 mod socks5;
 
-lazy_static! {
-  static ref CONNECTION_POOL: Mutex<ConnectionPool> = Mutex::new(ConnectionPool::new());
-}
+static CONNECTION_POOL: Lazy<Mutex<ConnectionPool>> = Lazy::new(|| Mutex::new(ConnectionPool::new()));
 
 pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> Result<()> {
   let tcp_list: Vec<&Yaml> = remote_hosts.iter()
