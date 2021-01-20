@@ -12,6 +12,7 @@ use yaml_rust::yaml::Array;
 
 use crate::client::tcp_client::TcpMuxChannel;
 use crate::commons::{Address, StdResAutoConvert};
+use crate::commons::tcp_mux::ChannelId;
 
 mod tcp_client;
 mod socks5;
@@ -78,8 +79,8 @@ async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
 }
 
 pub struct ConnectionPool {
-  db: HashMap<String, Arc<TcpMuxChannel>>,
-  keys: Vec<String>,
+  db: HashMap<ChannelId, Arc<TcpMuxChannel>>,
+  keys: Vec<u32>,
   count: usize,
 }
 
@@ -88,12 +89,12 @@ impl ConnectionPool {
     ConnectionPool { db: HashMap::new(), keys: Vec::new(), count: 0 }
   }
 
-  pub fn put(&mut self, k: String, v: Arc<TcpMuxChannel>) {
-    self.keys.push(k.clone());
+  pub fn put(&mut self, k: u32, v: Arc<TcpMuxChannel>) {
+    self.keys.push(k);
     self.db.insert(k, v);
   }
 
-  pub fn remove(&mut self, key: &str) -> Result<()> {
+  pub fn remove(&mut self, key: &u32) -> Result<()> {
     if let Some(i) = self.keys.iter().position(|k| k.eq(key)) {
       self.keys.remove(i);
       self.db.remove(key);

@@ -3,15 +3,15 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
 
 use crate::commons::{Address, OptionConvert, StdResAutoConvert};
-use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpSocketExt};
+use crate::commons::tcp_mux::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
 
-type DB = Arc<DashMap<String, DuplexStream>>;
+type DB = Arc<DashMap<ChannelId, DuplexStream>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
@@ -34,53 +34,58 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   Ok(())
 }
 
-async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> Result<()> {
   socket.set_keepalive()?;
-  let (tcp_rx, mut tcp_tx) = socket.split();
-  let mut tcp_rx = BufReader::new(tcp_rx);
+  let (tcp_rx, tcp_tx) = socket.split();
+  let tcp_rx = BufReader::new(tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
 
   let f1 = async move {
+    let mut msg_writer = MsgWriter::new(tcp_tx, rc4);
+
     while let Some(msg) = mpsc_rx.recv().await {
-      tcp_tx.write_msg(msg, &mut rc4).await?;
+      msg_writer.write_msg(&msg).await?;
     };
     Ok(())
   };
 
   let f2 = async move {
-    while let Some(msg) = tcp_rx.read_msg(&mut rc4).await? {
+    let mut msg_reader = MsgReader::new(tcp_rx, rc4);
+
+    while let Some(msg) = msg_reader.read_msg().await? {
       match msg {
-        Msg::CONNECT(channel_id, addr) => {
+        Msg::Connect(channel_id, addr) => {
           // 10MB
           let (child_rx, child_tx) = tokio::io::duplex(10485760);
-          db.insert(channel_id.clone(), child_tx);
+          db.insert(channel_id, child_tx);
 
           let db = db.clone();
           let mpsc_tx = mpsc_tx.clone();
 
           tokio::spawn(async move {
-            if let Err(e) = child_channel_process(&channel_id, addr, &mpsc_tx, child_rx).await {
+            if let Err(e) = child_channel_process(channel_id, addr, &mpsc_tx, child_rx).await {
               error!("{}", e);
             }
 
             // 可能存在死锁
             if let Some(_) = db.remove(&channel_id) {
-              if let Err(e) = mpsc_tx.send(Msg::DISCONNECT(channel_id).encode()).await {
+              if let Err(e) = mpsc_tx.send(Msg::Disconnect(channel_id).encode()).await {
                 error!("{}", e);
               }
             }
           });
         }
-        Msg::DISCONNECT(channel_id) => {
+        Msg::Disconnect(channel_id) => {
           db.remove(&channel_id);
         }
-        Msg::DATA(channel_id, data) => {
+        Msg::RefData(channel_id, data) => {
           if let Some(mut tx) = db.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(&data).await {
               error!("{}", e)
             }
           }
         }
+        _ => return Err(Error::new(ErrorKind::Other, "Message type error"))
       };
     }
     Ok(())
@@ -92,9 +97,10 @@ async fn process(mut socket: TcpStream, db: &DB, mut rc4: Rc4, buff_size: usize)
   }
 }
 
-async fn child_channel_process(channel_id: &String, addr: Address,
+async fn child_channel_process(channel_id: ChannelId, addr: Address,
                                mpsc_tx: &Sender<Vec<u8>>, mut child_rx: DuplexStream) -> Result<()> {
-  let addr = tokio::net::lookup_host((addr.0.as_str(), addr.1)).await?.next().option_to_res("Target address error")?;
+  let addr = tokio::net::lookup_host((String::from_utf8(addr.0).res_auto_convert()?, addr.1)).await?
+    .next().option_to_res("Target address error")?;
 
   let tcp_socket = match addr {
     SocketAddr::V4(_) => TcpSocket::new_v4(),
@@ -120,7 +126,7 @@ async fn child_channel_process(channel_id: &String, addr: Address,
         Err(e) => return Err(e)
       };
 
-      mpsc_tx.send(Msg::DATA(channel_id.clone(), slice.to_vec()).encode()).await
+      mpsc_tx.send(Msg::Data(channel_id, slice.to_vec()).encode()).await
         .res_auto_convert()?;
     };
   };

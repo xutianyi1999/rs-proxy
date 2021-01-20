@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
+use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
@@ -10,8 +11,8 @@ use tokio::sync::mpsc::Sender;
 use yaml_rust::Yaml;
 
 use crate::client::CONNECTION_POOL;
-use crate::commons::{Address, OptionConvert, StdResAutoConvert, tcp_mux};
-use crate::commons::tcp_mux::{Msg, MsgReadHandler, MsgWriteHandler, TcpSocketExt};
+use crate::commons::{Address, OptionConvert, StdResAutoConvert};
+use crate::commons::tcp_mux::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
 use crate::CONFIG_ERROR;
 
 pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
@@ -41,8 +42,8 @@ pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
 }
 
 /// 连接远程主机
-async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) -> Result<()> {
-  let channel_id = tcp_mux::create_channel_id();
+async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize) -> Result<()> {
+  let channel_id: u32 = random();
 
   loop {
     let mut socket = match TcpStream::connect(host).await {
@@ -55,7 +56,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 
     socket.set_keepalive()?;
 
-    let (tcp_rx, mut tcp_tx) = socket.split();
+    let (tcp_rx, tcp_tx) = socket.split();
     info!("{} connected", server_name);
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
@@ -64,8 +65,10 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 
     // 读取本地管道数据，发送到远端
     let f1 = async move {
+      let mut msg_writer = MsgWriter::new(tcp_tx, rc4);
+
       while let Some(msg) = mpsc_rx.recv().await {
-        tcp_tx.write_msg(msg, &mut rc4).await?;
+        msg_writer.write_msg(&msg).await?;
       };
       Ok(())
     };
@@ -73,7 +76,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
     let f2 = cmc.exec_remote_inbound_handler(tcp_rx, rc4);
 
     CONNECTION_POOL.lock().res_auto_convert()?
-      .put(channel_id.clone(), cmc.clone());
+      .put(channel_id, cmc.clone());
 
     let res = tokio::select! {
       res = f1 => res,
@@ -92,7 +95,7 @@ async fn connect(host: &str, server_name: &str, mut rc4: Rc4, buff_size: usize) 
 }
 
 // 本地管道映射
-pub type DB = DashMap<String, DuplexStream>;
+pub type DB = DashMap<ChannelId, DuplexStream>;
 
 pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
@@ -111,22 +114,22 @@ impl TcpMuxChannel {
     self.db.clear();
   }
 
-  pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, mut rc4: Rc4) -> Result<()> {
-    let mut rx = BufReader::new(rx);
+  pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, rc4: Rc4) -> Result<()> {
+    let mut msg_reader = MsgReader::new(BufReader::new(rx), rc4);
 
-    while let Some(msg) = rx.read_msg(&mut rc4).await? {
+    while let Some(msg) = msg_reader.read_msg().await? {
       match msg {
-        Msg::DATA(channel_id, data) => {
+        Msg::RefData(channel_id, data) => {
           if let Some(mut tx) = self.db.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(&data).await {
               error!("{}", e)
             }
           }
         }
-        Msg::DISCONNECT(channel_id) => {
+        Msg::Disconnect(channel_id) => {
           self.db.remove(&channel_id);
         }
-        _ => return Err(Error::new(ErrorKind::Other, "Message error"))
+        _ => return Err(Error::new(ErrorKind::Other, "Message type error"))
       }
     }
     Ok(())
@@ -173,12 +176,12 @@ impl TcpMuxChannel {
       return Err(Error::new(ErrorKind::Other, "Is closed"));
     }
 
-    let channel_id = tcp_mux::create_channel_id();
+    let channel_id: ChannelId = rand::random();
 
-    self.tx.send(Msg::CONNECT(channel_id.clone(), addr).encode()).await
+    self.tx.send(Msg::Connect(channel_id, addr).encode()).await
       .res_auto_convert()?;
 
-    self.db.insert(channel_id.clone(), child_tx);
+    self.db.insert(channel_id, child_tx);
 
     let p2p_channel = P2pChannel {
       mux_channel: self,
@@ -187,10 +190,10 @@ impl TcpMuxChannel {
     Ok(p2p_channel)
   }
 
-  async fn remove(&self, channel_id: &String) -> Result<()> {
+  async fn remove(&self, channel_id: &u32) -> Result<()> {
     // 可能存在死锁
     if let Some(_) = self.db.remove(channel_id) {
-      self.tx.send(Msg::DISCONNECT(channel_id.clone()).encode()).await.res_auto_convert()?;
+      self.tx.send(Msg::Disconnect(channel_id.clone()).encode()).await.res_auto_convert()?;
     }
     Ok(())
   }
@@ -198,13 +201,13 @@ impl TcpMuxChannel {
 
 struct P2pChannel<'a> {
   mux_channel: &'a TcpMuxChannel,
-  channel_id: String,
+  channel_id: u32,
 }
 
 impl P2pChannel<'_> {
   pub async fn write(&self, data: &[u8]) -> Result<()> {
-    let data = Msg::DATA(
-      self.channel_id.clone(),
+    let data = Msg::Data(
+      self.channel_id,
       data.to_vec(),
     ).encode();
 

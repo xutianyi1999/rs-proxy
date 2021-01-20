@@ -1,89 +1,67 @@
-use async_trait::async_trait;
-use bytes::{Buf, BufMut, Bytes};
+use bytes::BufMut;
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::{Decryptor, Encryptor};
 use socket2::Socket;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ErrorKind, Result};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Duration;
 
-use crate::commons::{Address, StdResAutoConvert, StdResConvert};
+use crate::commons::{Address, StdResConvert};
+use crate::commons::tcp_mux::MODE::Decrypt;
 
 const CONNECT: u8 = 0x00;
 const DISCONNECT: u8 = 0x01;
 const DATA: u8 = 0x03;
 
-pub enum Msg {
-  CONNECT(String, Address),
-  DISCONNECT(String),
-  DATA(String, Vec<u8>),
+pub type ChannelId = u32;
+
+pub enum Msg<'a> {
+  Connect(ChannelId, Address),
+  Disconnect(ChannelId),
+  Data(ChannelId, Vec<u8>),
+  RefData(ChannelId, &'a [u8]),
 }
 
-impl Msg {
+impl Msg<'_> {
   pub fn encode(self) -> Vec<u8> {
     encode(self)
   }
 }
 
-fn encode(msg: Msg) -> Vec<u8> {
-  match msg {
-    Msg::CONNECT(id, addr) => encode_connect_msg(addr, id),
-    Msg::DISCONNECT(id) => encode_disconnect_msg(id),
-    Msg::DATA(id, data) => encode_data_msg(id, &data)
+pub struct MsgReader<R>
+  where R: AsyncBufRead
+{
+  reader: R,
+  rc4: Rc4,
+  out: Vec<u8>,
+  buff: Vec<u8>,
+}
+
+impl<R> MsgReader<R>
+  where R: AsyncBufRead + Unpin
+{
+  pub fn new(reader: R, rc4: Rc4) -> MsgReader<R> {
+    let size = 65535;
+    MsgReader { reader, rc4, out: vec![0u8; size], buff: vec![0u8; size] }
+  }
+
+  pub async fn read_msg(&mut self) -> Result<Option<Msg<'_>>> {
+    let op = read_msg(&mut self.reader, &mut self.buff).await?;
+
+    let data = match op {
+      Some(v) => v,
+      None => return Ok(None)
+    };
+
+    let data = crypto(data, &mut self.out, &mut self.rc4, Decrypt)?;
+    let msg = decode(data)?;
+    Ok(Some(msg))
   }
 }
 
-fn encode_connect_msg(addr: Address, channel_id: String) -> Vec<u8> {
-  let (host, port) = addr;
-  let mut buff = Vec::with_capacity(5 + 2 + host.len());
-
-  buff.put_u8(CONNECT);
-  buff.put_slice(channel_id.as_bytes());
-
-  buff.put_slice(host.as_bytes());
-  buff.put_u16(port);
-  buff
-}
-
-fn encode_disconnect_msg(channel_id: String) -> Vec<u8> {
-  let mut buff = Vec::with_capacity(5);
-  buff.put_u8(DISCONNECT);
-  buff.put_slice(channel_id.as_bytes());
-  buff
-}
-
-fn encode_data_msg(channel_id: String, data: &[u8]) -> Vec<u8> {
-  let mut buff = Vec::with_capacity(5 + data.len());
-  buff.put_u8(DATA);
-  buff.put_slice(channel_id.as_bytes());
-  buff.put_slice(data);
-  buff
-}
-
-fn decode(data: Vec<u8>) -> Result<Msg> {
-  let mut msg = Bytes::from(data);
-  let mode = msg.get_u8();
-  let mut str = vec![0u8; 4];
-  msg.copy_to_slice(&mut str);
-  let channel_id = String::from_utf8(str).res_auto_convert()?;
-
-  let msg = match mode {
-    CONNECT => {
-      let mut host = vec![0u8; msg.len() - 2];
-      msg.copy_to_slice(&mut host);
-      let port = msg.get_u16();
-      Msg::CONNECT(channel_id, (String::from_utf8(host).res_auto_convert()?, port))
-    }
-    DISCONNECT => Msg::DISCONNECT(channel_id),
-    DATA => Msg::DATA(channel_id, msg.to_vec()),
-    _ => return Err(Error::new(ErrorKind::Other, "Message error"))
-  };
-  Ok(msg)
-}
-
-async fn read_msg<A>(rx: &mut A) -> Result<Option<Vec<u8>>>
+async fn read_msg<'a, A>(rx: &mut A, buff: &'a mut [u8]) -> Result<Option<&'a [u8]>>
   where A: AsyncRead + Unpin
 {
   let len = match rx.read_u16().await {
@@ -91,72 +69,122 @@ async fn read_msg<A>(rx: &mut A) -> Result<Option<Vec<u8>>>
     Err(_) => return Ok(None)
   };
 
-  let mut msg = vec![0u8; len as usize];
-  rx.read_exact(&mut msg).await?;
+  let msg = &mut buff[..len as usize];
+  rx.read_exact(msg).await?;
   Ok(Some(msg))
 }
 
-pub fn create_channel_id() -> String {
-  nanoid!(4)
+
+fn decode(data: &mut [u8]) -> Result<Msg> {
+  let len = data.len();
+  let mode = data[0];
+
+  let mut t = [0u8; 4];
+  t.copy_from_slice(&data[1..5]);
+  let channel_id = u32::from_be_bytes(t);
+
+  let msg = match mode {
+    CONNECT => {
+      let mut host = vec![0u8; len - 1 - 4 - 2];
+      host.copy_from_slice(&data[5..(len - 2)]);
+
+      let mut port = [0u8; 2];
+      port.copy_from_slice(&data[(len - 2)..]);
+
+      Msg::Connect(channel_id, (host, u16::from_be_bytes(port)))
+    }
+    DISCONNECT => Msg::Disconnect(channel_id),
+    DATA => Msg::RefData(channel_id, &data[(1 + 4)..]),
+    _ => return Err(Error::new(ErrorKind::Other, "Message error"))
+  };
+  Ok(msg)
 }
 
-#[async_trait]
-pub trait MsgWriteHandler {
-  async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()>;
+pub struct MsgWriter<W>
+  where W: AsyncWrite
+{
+  writer: W,
+  rc4: Rc4,
+  out: Vec<u8>,
+  buff: Vec<u8>,
 }
 
-#[async_trait]
-impl<A: AsyncWrite + Unpin + Send> MsgWriteHandler for A {
-  async fn write_msg(&mut self, msg: Vec<u8>, rc4: &mut Rc4) -> Result<()> {
-    let msg = crypto(&msg, rc4, MODE::ENCRYPT)?;
+impl<W> MsgWriter<W>
+  where W: AsyncWrite + Unpin
+{
+  pub fn new(writer: W, rc4: Rc4) -> MsgWriter<W> {
+    MsgWriter { writer, rc4, out: vec![0u8; 65537], buff: vec![0u8; 65535] }
+  }
 
-    let mut data = Vec::with_capacity(msg.len() + 2);
-    data.put_u16(msg.len() as u16);
-    data.put_slice(&msg);
+  pub async fn write_msg(&mut self, msg: &[u8]) -> Result<()> {
+    let slice = crypto(&msg, &mut self.buff, &mut self.rc4, MODE::Encrypt)?;
+    let msg_len = slice.len();
 
-    self.write_all(&data).await
+    let out = &mut self.out;
+    let len = (msg_len as u16).to_be_bytes();
+    out[..2].copy_from_slice(&len);
+    out[2..(msg_len + 2)].copy_from_slice(slice);
+
+    self.writer.write_all(&out[..(msg_len + 2)]).await
   }
 }
 
-#[async_trait]
-pub trait MsgReadHandler {
-  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Option<Msg>>;
+fn encode(msg: Msg) -> Vec<u8> {
+  match msg {
+    Msg::Connect(id, addr) => encode_connect_msg(addr, id),
+    Msg::Disconnect(id) => encode_disconnect_msg(id),
+    Msg::Data(id, data) => encode_data_msg(id, &data),
+    _ => panic!("Msg encode error")
+  }
 }
 
-#[async_trait]
-impl<A: AsyncRead + Unpin + Send> MsgReadHandler for A {
-  async fn read_msg(&mut self, rc4: &mut Rc4) -> Result<Option<Msg>> {
-    let data = match read_msg(self).await? {
-      Some(data) => data,
-      None => return Ok(None)
-    };
+fn encode_connect_msg(addr: Address, channel_id: ChannelId) -> Vec<u8> {
+  let (host, port) = addr;
+  let mut buff = Vec::with_capacity(1 + 4 + host.len() + 2);
 
-    let data = crypto(&data, rc4, MODE::DECRYPT)?;
-    Ok(Some(decode(data)?))
-  }
+  buff.put_u8(CONNECT);
+  buff.put_u32(channel_id);
+
+  buff.put_slice(&host);
+  buff.put_u16(port);
+  buff
+}
+
+fn encode_disconnect_msg(channel_id: ChannelId) -> Vec<u8> {
+  let mut buff = Vec::with_capacity(1 + 4);
+  buff.put_u8(DISCONNECT);
+  buff.put_u32(channel_id);
+  buff
+}
+
+fn encode_data_msg(channel_id: ChannelId, data: &[u8]) -> Vec<u8> {
+  let mut buff = Vec::with_capacity(1 + 4 + data.len());
+  buff.put_u8(DATA);
+  buff.put_u32(channel_id);
+  buff.put_slice(data);
+  buff
 }
 
 enum MODE {
-  ENCRYPT,
-  DECRYPT,
+  Encrypt,
+  Decrypt,
 }
 
-fn crypto<'a>(input: &'a [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<Vec<u8>> {
+fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<&'a mut [u8]> {
   let mut ref_read_buf = RefReadBuffer::new(input);
-  let mut out = vec![0u8; input.len()];
-  let mut ref_write_buf = RefWriteBuffer::new(&mut out);
+  let mut ref_write_buf = RefWriteBuffer::new(output);
 
   match mode {
-    MODE::DECRYPT => {
+    MODE::Decrypt => {
       rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false)
         .res_convert(|_| "Decrypt error".to_string())?;
     }
-    MODE::ENCRYPT => {
+    MODE::Encrypt => {
       rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false)
         .res_convert(|_| "Encrypt error".to_string())?;
     }
   };
-  Ok(out)
+  Ok(&mut output[..input.len()])
 }
 
 pub trait TcpSocketExt {

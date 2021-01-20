@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate nanoid;
 
 use std::env;
 

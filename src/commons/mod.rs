@@ -2,7 +2,7 @@ use tokio::io::{Error, ErrorKind, Result};
 
 pub mod tcp_mux;
 
-pub type Address = (String, u16);
+pub type Address = (Vec<u8>, u16);
 
 pub trait OptionConvert<T> {
   fn option_to_res(self, msg: &str) -> Result<T>;

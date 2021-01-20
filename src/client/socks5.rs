@@ -1,10 +1,9 @@
-use std::convert::TryInto;
 use std::net::IpAddr;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 
-use crate::commons::{Address, StdResAutoConvert};
+use crate::commons::Address;
 
 const SOCKS5_VERSION: u8 = 0x05;
 const NO_AUTH: u8 = 0x00;
@@ -46,33 +45,29 @@ pub async fn command_request(socket: &mut TcpStream) -> Result<Address> {
 
   let address = match buffer[3] {
     IPV4 => {
-      let mut buffer = [0u8; 6];
-      socket.read_exact(&mut buffer).await?;
+      let mut addr = [0u8; 4];
+      socket.read_exact(&mut addr).await?;
+      let ipaddr = IpAddr::from(addr);
 
-      let addr: [u8; 4] = buffer[..4].try_into().res_auto_convert()?;
-      let port: [u8; 2] = buffer[4..].try_into().res_auto_convert()?;
-
-      (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
+      let port = socket.read_u16().await?;
+      (Vec::from(ipaddr.to_string()), port)
     }
     IPV6 => {
-      let mut buffer = [0u8; 18];
-      socket.read_exact(&mut buffer).await?;
+      let mut addr = [0u8; 16];
+      socket.read_exact(&mut addr).await?;
+      let ipaddr = IpAddr::from(addr);
 
-      let addr: [u8; 16] = buffer[..16].try_into().res_auto_convert()?;
-      let port: [u8; 2] = buffer[16..].try_into().res_auto_convert()?;
-
-      (IpAddr::from(addr).to_string(), u16::from_be_bytes(port))
+      let port = socket.read_u16().await?;
+      (Vec::from(ipaddr.to_string()), port)
     }
     DOMAIN_NAME => {
       let len = socket.read_u8().await? as usize;
 
-      let mut buffer: Vec<u8> = vec![0u8; len + 2];
-      socket.read_exact(&mut buffer).await?;
+      let mut domain = vec![0u8; len];
+      socket.read_exact(&mut domain).await?;
+      let port = socket.read_u16().await?;
 
-      let domain_name = String::from_utf8(Vec::from(&buffer[..len])).res_auto_convert()?;
-      let port: [u8; 2] = buffer[len..].try_into().res_auto_convert()?;
-
-      (domain_name, u16::from_be_bytes(port))
+      (domain, port)
     }
     _ => {
       write_err_reply(socket, 0x08).await?;
