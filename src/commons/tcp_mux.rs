@@ -20,8 +20,7 @@ pub type ChannelId = u32;
 pub enum Msg<'a> {
   Connect(ChannelId, Address),
   Disconnect(ChannelId),
-  Data(ChannelId, Vec<u8>),
-  RefData(ChannelId, &'a [u8]),
+  Data(ChannelId, &'a [u8]),
 }
 
 impl Msg<'_> {
@@ -74,7 +73,6 @@ async fn read_msg<'a, A>(rx: &mut A, buff: &'a mut [u8]) -> Result<Option<&'a [u
   Ok(Some(msg))
 }
 
-
 fn decode(data: &mut [u8]) -> Result<Msg> {
   let len = data.len();
   let mode = data[0];
@@ -94,7 +92,7 @@ fn decode(data: &mut [u8]) -> Result<Msg> {
       Msg::Connect(channel_id, (host, u16::from_be_bytes(port)))
     }
     DISCONNECT => Msg::Disconnect(channel_id),
-    DATA => Msg::RefData(channel_id, &data[(1 + 4)..]),
+    DATA => Msg::Data(channel_id, &data[(1 + 4)..]),
     _ => return Err(Error::new(ErrorKind::Other, "Message error"))
   };
   Ok(msg)
@@ -134,7 +132,6 @@ fn encode(msg: Msg) -> Vec<u8> {
     Msg::Connect(id, addr) => encode_connect_msg(addr, id),
     Msg::Disconnect(id) => encode_disconnect_msg(id),
     Msg::Data(id, data) => encode_data_msg(id, &data),
-    _ => panic!("Msg encode error")
   }
 }
 

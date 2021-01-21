@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crypto::rc4::Rc4;
 use dashmap::DashMap;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Result};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
@@ -78,14 +78,13 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
         Msg::Disconnect(channel_id) => {
           db.remove(&channel_id);
         }
-        Msg::RefData(channel_id, data) => {
+        Msg::Data(channel_id, data) => {
           if let Some(mut tx) = db.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(&data).await {
               error!("{}", e)
             }
           }
         }
-        _ => return Err(Error::new(ErrorKind::Other, "Message type error"))
       };
     }
     Ok(())
@@ -126,7 +125,7 @@ async fn child_channel_process(channel_id: ChannelId, addr: Address,
         Err(e) => return Err(e)
       };
 
-      mpsc_tx.send(Msg::Data(channel_id, slice.to_vec()).encode()).await
+      mpsc_tx.send(Msg::Data(channel_id, slice).encode()).await
         .res_auto_convert()?;
     };
   };

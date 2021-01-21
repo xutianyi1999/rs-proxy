@@ -119,7 +119,7 @@ impl TcpMuxChannel {
 
     while let Some(msg) = msg_reader.read_msg().await? {
       match msg {
-        Msg::RefData(channel_id, data) => {
+        Msg::Data(channel_id, data) => {
           if let Some(mut tx) = self.db.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(&data).await {
               error!("{}", e)
@@ -208,7 +208,7 @@ impl P2pChannel<'_> {
   pub async fn write(&self, data: &[u8]) -> Result<()> {
     let data = Msg::Data(
       self.channel_id,
-      data.to_vec(),
+      data,
     ).encode();
 
     self.mux_channel.tx.send(data).await.res_auto_convert()
