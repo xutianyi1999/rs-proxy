@@ -190,10 +190,10 @@ impl TcpMuxChannel {
     Ok(p2p_channel)
   }
 
-  async fn remove(&self, channel_id: &u32) -> Result<()> {
+  async fn remove(&self, channel_id: u32) -> Result<()> {
     // 可能存在死锁
-    if let Some(_) = self.db.remove(channel_id) {
-      self.tx.send(Msg::Disconnect(channel_id.clone()).encode()).await.res_auto_convert()?;
+    if self.db.remove(&channel_id).is_some() {
+      self.tx.send(Msg::Disconnect(channel_id).encode()).await.res_auto_convert()?;
     }
     Ok(())
   }
@@ -215,6 +215,6 @@ impl P2pChannel<'_> {
   }
 
   pub async fn close(&self) -> Result<()> {
-    self.mux_channel.remove(&self.channel_id).await
+    self.mux_channel.remove(self.channel_id).await
   }
 }

@@ -68,7 +68,7 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
             }
 
             // 可能存在死锁
-            if let Some(_) = db.remove(&channel_id) {
+            if db.remove(&channel_id).is_some() {
               if let Err(e) = mpsc_tx.send(Msg::Disconnect(channel_id).encode()).await {
                 error!("{}", e);
               }

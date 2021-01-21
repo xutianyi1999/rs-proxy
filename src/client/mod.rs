@@ -26,7 +26,7 @@ pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> 
 
   tcp_client::start(tcp_list)?;
 
-  let port = SocketAddr::from_str(socks5_addr.clone()).res_auto_convert()?.port();
+  let port = SocketAddr::from_str(socks5_addr).res_auto_convert()?.port();
   let http_addr = String::from(http_addr);
 
   let f1 = tokio::task::spawn_blocking(move || {
@@ -103,7 +103,7 @@ impl ConnectionPool {
   }
 
   pub fn get(&mut self) -> Option<Arc<TcpMuxChannel>> {
-    if self.keys.len() == 0 {
+    if self.keys.is_empty() {
       return Option::None;
     } else if self.keys.len() == 1 {
       let key = self.keys.get(0)?;
