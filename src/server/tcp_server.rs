@@ -80,7 +80,7 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
         }
         Msg::Data(channel_id, data) => {
           if let Some(mut tx) = db.get_mut(&channel_id) {
-            if let Err(e) = tx.write_all(&data).await {
+            if let Err(e) = tx.write_all(data).await {
               error!("{}", e)
             }
           }
