@@ -1,17 +1,17 @@
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crypto::rc4::Rc4;
-use dashmap::DashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Result};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::Sender;
 
 use crate::commons::{Address, OptionConvert, StdResAutoConvert};
 use crate::commons::tcp_mux::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
 
-type DB = Arc<DashMap<ChannelId, DuplexStream>>;
+type DB = Arc<Mutex<HashMap<ChannelId, DuplexStream>>>;
 
 pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
@@ -22,13 +22,13 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
       info!("{:?} connected", addr);
-      let db: DB = Arc::new(DashMap::new());
+      let db: DB = Arc::new(Mutex::new(HashMap::new()));
 
       if let Err(e) = process(socket, &db, rc4, buff_size).await {
         error!("{}", e);
       };
 
-      db.clear()
+      db.lock().await.clear();
     });
   };
   Ok(())
@@ -57,7 +57,7 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
         Msg::Connect(channel_id, addr) => {
           // 10MB
           let (child_rx, child_tx) = tokio::io::duplex(10485760);
-          db.insert(channel_id, child_tx);
+          db.lock().await.insert(channel_id, child_tx);
 
           let db = db.clone();
           let mpsc_tx = mpsc_tx.clone();
@@ -67,8 +67,7 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
               error!("{}", e);
             }
 
-            // 可能存在死锁
-            if db.remove(&channel_id).is_some() {
+            if db.lock().await.remove(&channel_id).is_some() {
               if let Err(e) = mpsc_tx.send(Msg::Disconnect(channel_id).encode()).await {
                 error!("{}", e);
               }
@@ -76,10 +75,10 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
           });
         }
         Msg::Disconnect(channel_id) => {
-          db.remove(&channel_id);
+          db.lock().await.remove(&channel_id);
         }
         Msg::Data(channel_id, data) => {
-          if let Some(mut tx) = db.get_mut(&channel_id) {
+          if let Some(tx) = db.lock().await.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(data).await {
               error!("{}", e)
             }

@@ -1,12 +1,12 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crypto::rc4::Rc4;
-use dashmap::DashMap;
 use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::Yaml;
 
@@ -95,7 +95,7 @@ async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize) -> R
 }
 
 // 本地管道映射
-pub type DB = DashMap<ChannelId, DuplexStream>;
+pub type DB = Mutex<HashMap<ChannelId, DuplexStream>>;
 
 pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
@@ -105,13 +105,13 @@ pub struct TcpMuxChannel {
 
 impl TcpMuxChannel {
   pub fn new(tx: Sender<Vec<u8>>) -> TcpMuxChannel {
-    TcpMuxChannel { tx, db: DashMap::new(), is_close: RwLock::new(false) }
+    TcpMuxChannel { tx, db: Mutex::new(HashMap::new()), is_close: RwLock::new(false) }
   }
 
   pub async fn close(&self) {
     let mut flag_lock_guard = self.is_close.write().await;
     *flag_lock_guard = true;
-    self.db.clear();
+    self.db.lock().await.clear();
   }
 
   pub async fn exec_remote_inbound_handler(&self, rx: ReadHalf<'_>, rc4: Rc4) -> Result<()> {
@@ -120,14 +120,14 @@ impl TcpMuxChannel {
     while let Some(msg) = msg_reader.read_msg().await? {
       match msg {
         Msg::Data(channel_id, data) => {
-          if let Some(mut tx) = self.db.get_mut(&channel_id) {
+          if let Some(tx) = self.db.lock().await.get_mut(&channel_id) {
             if let Err(e) = tx.write_all(data).await {
               error!("{}", e)
             }
           }
         }
         Msg::Disconnect(channel_id) => {
-          self.db.remove(&channel_id);
+          self.db.lock().await.remove(&channel_id);
         }
         _ => return Err(Error::new(ErrorKind::Other, "Message type error"))
       }
@@ -181,7 +181,7 @@ impl TcpMuxChannel {
     self.tx.send(Msg::Connect(channel_id, addr).encode()).await
       .res_auto_convert()?;
 
-    self.db.insert(channel_id, child_tx);
+    self.db.lock().await.insert(channel_id, child_tx);
 
     let p2p_channel = P2pChannel {
       mux_channel: self,
@@ -191,8 +191,7 @@ impl TcpMuxChannel {
   }
 
   async fn remove(&self, channel_id: u32) -> Result<()> {
-    // 可能存在死锁
-    if self.db.remove(&channel_id).is_some() {
+    if self.db.lock().await.remove(&channel_id).is_some() {
       self.tx.send(Msg::Disconnect(channel_id).encode()).await.res_auto_convert()?;
     }
     Ok(())
