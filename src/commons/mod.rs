@@ -1,6 +1,10 @@
+use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
+use crypto::rc4::Rc4;
+use crypto::symmetriccipher::{Decryptor, Encryptor};
 use tokio::io::{Error, ErrorKind, Result};
 
-pub mod tcp_mux;
+pub mod tcpmux_comm;
+pub mod tcp_comm;
 
 pub type Address = (Vec<u8>, u16);
 
@@ -49,4 +53,27 @@ fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> 
       Err(Error::new(ErrorKind::Other, msg))
     }
   }
+}
+
+#[derive(Clone, Copy)]
+enum MODE {
+  Encrypt,
+  Decrypt,
+}
+
+fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<&'a mut [u8]> {
+  let mut ref_read_buf = RefReadBuffer::new(input);
+  let mut ref_write_buf = RefWriteBuffer::new(output);
+
+  match mode {
+    MODE::Decrypt => {
+      rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false)
+        .res_convert(|_| "Decrypt error".to_string())?;
+    }
+    MODE::Encrypt => {
+      rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false)
+        .res_convert(|_| "Encrypt error".to_string())?;
+    }
+  };
+  Ok(&mut output[..input.len()])
 }

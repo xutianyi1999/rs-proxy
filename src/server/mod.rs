@@ -4,6 +4,7 @@ use yaml_rust::Yaml;
 use crate::commons::OptionConvert;
 use crate::CONFIG_ERROR;
 
+mod tcpmux_server;
 mod tcp_server;
 
 pub async fn start(config: &Yaml) -> Result<()> {
@@ -14,7 +15,7 @@ pub async fn start(config: &Yaml) -> Result<()> {
     "tcp" => {
       let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
       let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
-      tcp_server::start(host, key, buff_size as usize).await
+      tcpmux_server::start(host, key, buff_size as usize).await
     }
     _ => Err(Error::new(ErrorKind::Other, CONFIG_ERROR))
   }

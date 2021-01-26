@@ -1,15 +1,14 @@
 use bytes::BufMut;
-use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
-use crypto::symmetriccipher::{Decryptor, Encryptor};
 use socket2::Socket;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ErrorKind, Result};
 use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Duration;
 
-use crate::commons::{Address, StdResConvert};
-use crate::commons::tcp_mux::MODE::Decrypt;
+use crate::commons::{Address, MODE};
+use crate::commons::crypto;
+use crate::commons::tcpmux_comm::MODE::Decrypt;
 
 const CONNECT: u8 = 0x00;
 const DISCONNECT: u8 = 0x01;
@@ -160,28 +159,6 @@ fn encode_data_msg(channel_id: ChannelId, data: &[u8]) -> Vec<u8> {
   buff.put_u32(channel_id);
   buff.put_slice(data);
   buff
-}
-
-enum MODE {
-  Encrypt,
-  Decrypt,
-}
-
-fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<&'a mut [u8]> {
-  let mut ref_read_buf = RefReadBuffer::new(input);
-  let mut ref_write_buf = RefWriteBuffer::new(output);
-
-  match mode {
-    MODE::Decrypt => {
-      rc4.decrypt(&mut ref_read_buf, &mut ref_write_buf, false)
-        .res_convert(|_| "Decrypt error".to_string())?;
-    }
-    MODE::Encrypt => {
-      rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false)
-        .res_convert(|_| "Encrypt error".to_string())?;
-    }
-  };
-  Ok(&mut output[..input.len()])
 }
 
 pub trait TcpSocketExt {

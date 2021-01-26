@@ -10,10 +10,11 @@ use tokio::net::{TcpListener, TcpStream};
 use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
-use crate::client::tcp_client::TcpMuxChannel;
+use crate::client::tcpmux_client::TcpMuxChannel;
 use crate::commons::{Address, StdResAutoConvert};
-use crate::commons::tcp_mux::ChannelId;
+use crate::commons::tcpmux_comm::ChannelId;
 
+mod tcpmux_client;
 mod tcp_client;
 mod socks5;
 
@@ -24,7 +25,7 @@ pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> 
     .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
     .collect();
 
-  tcp_client::start(tcp_list)?;
+  tcpmux_client::start(tcp_list)?;
 
   let port = SocketAddr::from_str(socks5_addr).res_auto_convert()?.port();
   let http_addr = String::from(http_addr);
