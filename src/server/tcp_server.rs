@@ -4,11 +4,12 @@ use crypto::rc4::Rc4;
 use tokio::io::{AsyncReadExt, Result};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::commons::MODE::Decrypt;
 use crate::commons::StdResAutoConvert;
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 use crate::commons::tcpmux_comm::TcpSocketExt;
 
-async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()> {
+pub async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(listen_addr).await?;
 
   while let Ok((stream, _)) = listener.accept().await {
@@ -21,14 +22,21 @@ async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()
   Ok(())
 }
 
-async fn tunnel(mut stream: TcpStream, rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn tunnel(mut stream: TcpStream, mut rc4: Rc4, buff_size: usize) -> Result<()> {
   stream.set_keepalive()?;
 
   let len = stream.read_u16().await?;
-  let mut addr = vec![0u8; (len as usize) - 2];
-  stream.read_exact(&mut addr).await?;
-  let addr = String::from_utf8(addr).res_auto_convert()?;
-  let port = stream.read_u16().await?;
+  let len = len as usize;
+
+  let mut in_ = vec![0u8; len];
+  stream.read_exact(&mut in_).await?;
+  let mut out = vec![0u8; len];
+
+  crate::commons::crypto(&in_, &mut out, &mut rc4, Decrypt)?;
+  let addr = String::from_utf8((&out[..len - 2]).to_owned()).res_auto_convert()?;
+  let mut port = [0u8; 2];
+  port.copy_from_slice(&out[len - 2..]);
+  let port = u16::from_be_bytes(port);
 
   let addr = (addr, port);
   let dest_stream = TcpStream::connect(addr).await?;

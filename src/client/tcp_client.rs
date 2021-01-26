@@ -1,24 +1,26 @@
 use std::net::SocketAddr;
 
+use bytes::BufMut;
 use crypto::rc4::Rc4;
 use rand::Rng;
-use rand::rngs::ThreadRng;
-use tokio::io::{Error, ErrorKind, Result};
+use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 
+use crate::commons::Address;
+use crate::commons::MODE::Encrypt;
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 
-struct TcpProxy {
+pub struct TcpProxy {
   server_list: Vec<(SocketAddr, Rc4)>,
   buff_size: usize,
 }
 
 impl TcpProxy {
-  fn new(server_list: Vec<(SocketAddr, Rc4)>, buff_size: usize) -> TcpProxy {
+  pub fn new(server_list: Vec<(SocketAddr, Rc4)>, buff_size: usize) -> TcpProxy {
     TcpProxy { server_list, buff_size }
   }
 
-  async fn connect(&self, source_stream: TcpStream, proxy_addr: Vec<u8>) -> Result<()> {
+  pub async fn connect(&self, source_stream: TcpStream, proxy_addr: Address) -> Result<()> {
     let server_list = &self.server_list;
 
     let tuple = if server_list.is_empty() {
@@ -30,9 +32,17 @@ impl TcpProxy {
       server_list.get(i).unwrap()
     };
 
-    let server_stream = TcpStream::connect((*tuple).0).await?;
-    let rc4 = (*tuple).1;
+    let mut server_stream = TcpStream::connect((*tuple).0).await?;
+    let mut rc4 = (*tuple).1;
     let buff_size = self.buff_size;
+
+    let mut buff: Vec<u8> = Vec::with_capacity(proxy_addr.0.len() + 2);
+    buff.put_slice(&proxy_addr.0);
+    buff.put_u16(proxy_addr.1);
+
+    let mut out = vec![0u8; buff.len()];
+    crate::commons::crypto(&buff, &mut out, &mut rc4, Encrypt)?;
+    server_stream.write_all(&out).await?;
 
     if buff_size == 0 {
       proxy_tunnel(source_stream, server_stream, rc4).await

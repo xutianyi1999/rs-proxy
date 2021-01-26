@@ -1,9 +1,0 @@
----
-# 本机地址
-host: 0.0.0.0:12345
-# 协议
-protocol: quic
-# 签名证书地址
-cert: C:\cert.der
-# 私钥地址
-private_key: C:\priv_key

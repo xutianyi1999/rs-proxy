@@ -43,11 +43,7 @@ async fn process() -> Result<()> {
 
   match mode.as_str() {
     "client" => {
-      let socks5_listen = config["socks5Listen"].as_str().option_to_res(CONFIG_ERROR)?.to_string();
-      let http_listen = config["httpListen"].as_str().option_to_res(CONFIG_ERROR)?.to_string();
-      let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
-
-      client::start(&http_listen, &socks5_listen, remote_hosts).await
+      client::start(config).await
     }
     "server" => {
       server::start(config).await

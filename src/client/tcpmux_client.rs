@@ -8,20 +8,19 @@ use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::sync::mpsc::Sender;
-use yaml_rust::Yaml;
+use yaml_rust::yaml::Array;
 
 use crate::client::CONNECTION_POOL;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert};
 use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
 use crate::CONFIG_ERROR;
 
-pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
+pub fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<()> {
   for host in host_list {
     let server_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
     let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
     let addr = host["host"].as_str().option_to_res(CONFIG_ERROR)?;
     let key = host["key"].as_str().option_to_res(CONFIG_ERROR)?;
-    let buff_size = host["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
     let rc4 = Rc4::new(key.as_bytes());
 
     for i in 0..count {
@@ -31,7 +30,7 @@ pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
       tokio::spawn(async move {
         let server_name = format!("{}-{}", server_name, i);
 
-        if let Err(e) = connect(&addr, &server_name, rc4, buff_size as usize).await {
+        if let Err(e) = connect(&addr, &server_name, rc4, buff_size, channel_capacity).await {
           error!("{}", e);
         }
         error!("{} crashed", server_name);
@@ -42,7 +41,7 @@ pub fn start(host_list: Vec<&Yaml>) -> Result<()> {
 }
 
 /// 连接远程主机
-async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
   let channel_id: u32 = random();
 
   loop {
@@ -59,8 +58,8 @@ async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize) -> R
     let (tcp_rx, tcp_tx) = socket.split();
     info!("{} connected", server_name);
 
-    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
-    let cmc = TcpMuxChannel::new(mpsc_tx);
+    let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
+    let cmc = TcpMuxChannel::new(mpsc_tx, buff_size);
     let cmc = Arc::new(cmc);
 
     // 读取本地管道数据，发送到远端
@@ -101,11 +100,12 @@ pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
   db: DB,
   is_close: RwLock<bool>,
+  buff_size: usize,
 }
 
 impl TcpMuxChannel {
-  pub fn new(tx: Sender<Vec<u8>>) -> TcpMuxChannel {
-    TcpMuxChannel { tx, db: Mutex::new(HashMap::new()), is_close: RwLock::new(false) }
+  pub fn new(tx: Sender<Vec<u8>>, buff_size: usize) -> TcpMuxChannel {
+    TcpMuxChannel { tx, db: Mutex::new(HashMap::new()), is_close: RwLock::new(false), buff_size }
   }
 
   pub async fn close(&self) {
@@ -138,7 +138,7 @@ impl TcpMuxChannel {
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, mut socket: TcpStream, addr: Address) -> Result<()> {
     // 10MB
-    let (mut child_rx, child_tx) = tokio::io::duplex(10485760);
+    let (mut child_rx, child_tx) = tokio::io::duplex(self.buff_size);
     let p2p_channel = self.register(addr, child_tx).await?;
     let (mut tcp_rx, mut tcp_tx) = socket.split();
 
@@ -211,5 +211,49 @@ impl P2pChannel<'_> {
 
   pub async fn close(&self) -> Result<()> {
     self.mux_channel.remove(self.channel_id).await
+  }
+}
+
+pub struct ConnectionPool {
+  db: HashMap<ChannelId, Arc<TcpMuxChannel>>,
+  keys: Vec<u32>,
+  count: usize,
+}
+
+impl ConnectionPool {
+  pub fn new() -> ConnectionPool {
+    ConnectionPool { db: HashMap::new(), keys: Vec::new(), count: 0 }
+  }
+
+  pub fn put(&mut self, k: u32, v: Arc<TcpMuxChannel>) {
+    self.keys.push(k);
+    self.db.insert(k, v);
+  }
+
+  pub fn remove(&mut self, key: &u32) -> Result<()> {
+    if let Some(i) = self.keys.iter().position(|k| k.eq(key)) {
+      self.keys.remove(i);
+      self.db.remove(key);
+    }
+    Ok(())
+  }
+
+  pub fn get(&mut self) -> Option<Arc<TcpMuxChannel>> {
+    if self.keys.is_empty() {
+      return Option::None;
+    } else if self.keys.len() == 1 {
+      let key = self.keys.get(0)?;
+      return self.db.get(key).cloned();
+    }
+
+    let count = self.count + 1;
+
+    if self.keys.len() <= count {
+      self.count = 0;
+    } else {
+      self.count = count;
+    };
+    let key = self.keys.get(self.count)?;
+    self.db.get(key).cloned()
   }
 }

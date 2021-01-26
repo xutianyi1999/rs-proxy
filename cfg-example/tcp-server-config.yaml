@@ -5,5 +5,5 @@ host: 0.0.0.0:12345
 protocol: tcp
 # 密钥
 key: "123a"
-# 缓冲队列容量
-buffSize: 1000
+# 缓冲池容量, buffSize:0 等于不使用
+buffSize: 2048

@@ -56,12 +56,12 @@ fn std_res_convert<T, E>(res: std::result::Result<T, E>, f: fn(E) -> String) -> 
 }
 
 #[derive(Clone, Copy)]
-enum MODE {
+pub enum MODE {
   Encrypt,
   Decrypt,
 }
 
-fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<&'a mut [u8]> {
+pub fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4, mode: MODE) -> Result<&'a mut [u8]> {
   let mut ref_read_buf = RefReadBuffer::new(input);
   let mut ref_write_buf = RefWriteBuffer::new(output);
 

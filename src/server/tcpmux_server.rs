@@ -13,7 +13,7 @@ use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocke
 
 type DB = Arc<Mutex<HashMap<ChannelId, DuplexStream>>>;
 
-pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
+pub async fn start(host: &str, key: &str, buff_size: usize, channel_capacity: usize) -> Result<()> {
   let listener = TcpListener::bind(host).await?;
   info!("Listening on {}", listener.local_addr()?);
 
@@ -24,7 +24,7 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
       info!("{:?} connected", addr);
       let db: DB = Arc::new(Mutex::new(HashMap::new()));
 
-      if let Err(e) = process(socket, &db, rc4, buff_size).await {
+      if let Err(e) = process(socket, &db, rc4, buff_size, channel_capacity).await {
         error!("{}", e);
       };
 
@@ -34,11 +34,11 @@ pub async fn start(host: &str, key: &str, buff_size: usize) -> Result<()> {
   Ok(())
 }
 
-async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
   socket.set_keepalive()?;
   let (tcp_rx, tcp_tx) = socket.split();
   let tcp_rx = BufReader::new(tcp_rx);
-  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(buff_size);
+  let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
 
   let f1 = async move {
     let mut msg_writer = MsgWriter::new(tcp_tx, rc4);
@@ -55,8 +55,7 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize) -> 
     while let Some(msg) = msg_reader.read_msg().await? {
       match msg {
         Msg::Connect(channel_id, addr) => {
-          // 10MB
-          let (child_rx, child_tx) = tokio::io::duplex(10485760);
+          let (child_rx, child_tx) = tokio::io::duplex(buff_size);
           db.lock().await.insert(channel_id, child_tx);
 
           let db = db.clone();

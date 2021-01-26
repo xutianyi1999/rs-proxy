@@ -1,0 +1,11 @@
+---
+# 本机地址
+host: 0.0.0.0:12345
+# 协议
+protocol: tcpmux
+# 密钥
+key: "123a"
+# 缓冲池容量
+buffSize: 65536
+# 缓冲队列容量
+channelCapacity: 500

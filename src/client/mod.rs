@@ -1,45 +1,64 @@
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::os::raw::c_char;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use crypto::rc4::Rc4;
 use once_cell::sync::Lazy;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
 use yaml_rust::Yaml;
 use yaml_rust::yaml::Array;
 
-use crate::client::tcpmux_client::TcpMuxChannel;
-use crate::commons::{Address, StdResAutoConvert};
-use crate::commons::tcpmux_comm::ChannelId;
+use crate::client::tcp_client::TcpProxy;
+use crate::client::tcpmux_client::ConnectionPool;
+use crate::commons::{Address, OptionConvert, StdResAutoConvert};
+use crate::CONFIG_ERROR;
 
 mod tcpmux_client;
 mod tcp_client;
 mod socks5;
 
+enum Protocol {
+  Tcp(TcpHandle),
+  TcpMux(TcpMuxHandle),
+}
+
 static CONNECTION_POOL: Lazy<Mutex<ConnectionPool>> = Lazy::new(|| Mutex::new(ConnectionPool::new()));
 
-pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> Result<()> {
-  let tcp_list: Vec<&Yaml> = remote_hosts.iter()
-    .filter(|e| e["protocol"].as_str().unwrap().eq("tcp"))
-    .collect();
+pub async fn start(config: &Yaml) -> Result<()> {
+  let socks5_listen = config["socks5Listen"].as_str().option_to_res(CONFIG_ERROR)?;
+  let http_listen = config["httpListen"].as_str().option_to_res(CONFIG_ERROR)?.to_owned();
+  let protocol = config["protocol"].as_str().option_to_res(CONFIG_ERROR)?;
 
-  tcpmux_client::start(tcp_list)?;
+  let remote_hosts = config["remote"].as_vec().option_to_res(CONFIG_ERROR)?;
 
-  let port = SocketAddr::from_str(socks5_addr).res_auto_convert()?.port();
-  let http_addr = String::from(http_addr);
+  let proto = match protocol {
+    "tcp" => {
+      let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
+      Protocol::Tcp(TcpHandle::new(remote_hosts, buff_size as usize).await?)
+    }
+    "tcpmux" => {
+      let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
+      let channel_capacity = config["channelCapacity"].as_i64().option_to_res(CONFIG_ERROR)?;
+      Protocol::TcpMux(TcpMuxHandle::new(remote_hosts, buff_size as usize, channel_capacity as usize)?)
+    }
+    _ => return Err(Error::new(ErrorKind::Other, CONFIG_ERROR))
+  };
+
+
+  let socks5_listen_addr = SocketAddr::from_str(socks5_listen).res_auto_convert()?;
 
   let f1 = tokio::task::spawn_blocking(move || {
-    let local_socks5_addr = format!("127.0.0.1:{}", port);
-    let res = start_http_proxy_server(&http_addr, &local_socks5_addr);
+    let local_socks5_addr = format!("127.0.0.1:{}", socks5_listen_addr.port());
+    let res = start_http_proxy_server(&http_listen, &local_socks5_addr);
 
     if let Err(e) = res {
       error!("{}", e)
     }
   });
 
-  let f2 = socks5_server_bind(socks5_addr);
+  let f2 = socks5_server_bind(socks5_listen_addr, proto);
 
   tokio::select! {
     res = f1 => res.res_auto_convert(),
@@ -47,80 +66,36 @@ pub async fn start(http_addr: &str, socks5_addr: &str, remote_hosts: &Array) -> 
   }
 }
 
-async fn socks5_server_bind(host: &str) -> Result<()> {
+async fn socks5_server_bind(host: SocketAddr, proto: Protocol) -> Result<()> {
   let tcp_listener = TcpListener::bind(host).await?;
   info!("Listening on socks5://{}", tcp_listener.local_addr()?);
+  let proto = Arc::new(proto);
 
-  while let Ok((socket, _)) = tcp_listener.accept().await {
+  while let Ok((mut socket, _)) = tcp_listener.accept().await {
+    let inner_proto = proto.clone();
+
     tokio::spawn(async move {
-      if let Err(e) = process(socket).await {
-        error!("{}", e);
+      let f = || async move {
+        let addr = socks5_decode(&mut socket).await?;
+
+        match &*inner_proto {
+          Protocol::Tcp(handle) => handle.proxy(socket, addr).await,
+          Protocol::TcpMux(handle) => handle.proxy(socket, addr).await
+        }
       };
+
+      if let Err(e) = f().await {
+        error!("{}", e)
+      }
     });
   };
   Ok(())
-}
-
-async fn process(mut socket: TcpStream) -> Result<()> {
-  let address = socks5_decode(&mut socket).await?;
-  let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
-
-  let channel = match opt {
-    Some(channel) => channel,
-    None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
-  };
-
-  channel.exec_local_inbound_handler(socket, address).await
 }
 
 async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
   socks5::initial_request(socket).await?;
   let addr = socks5::command_request(socket).await?;
   Ok(addr)
-}
-
-pub struct ConnectionPool {
-  db: HashMap<ChannelId, Arc<TcpMuxChannel>>,
-  keys: Vec<u32>,
-  count: usize,
-}
-
-impl ConnectionPool {
-  pub fn new() -> ConnectionPool {
-    ConnectionPool { db: HashMap::new(), keys: Vec::new(), count: 0 }
-  }
-
-  pub fn put(&mut self, k: u32, v: Arc<TcpMuxChannel>) {
-    self.keys.push(k);
-    self.db.insert(k, v);
-  }
-
-  pub fn remove(&mut self, key: &u32) -> Result<()> {
-    if let Some(i) = self.keys.iter().position(|k| k.eq(key)) {
-      self.keys.remove(i);
-      self.db.remove(key);
-    }
-    Ok(())
-  }
-
-  pub fn get(&mut self) -> Option<Arc<TcpMuxChannel>> {
-    if self.keys.is_empty() {
-      return Option::None;
-    } else if self.keys.len() == 1 {
-      let key = self.keys.get(0)?;
-      return self.db.get(key).cloned();
-    }
-
-    let count = self.count + 1;
-
-    if self.keys.len() <= count {
-      self.count = 0;
-    } else {
-      self.count = count;
-    };
-    let key = self.keys.get(self.count)?;
-    self.db.get(key).cloned()
-  }
 }
 
 fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
@@ -133,4 +108,50 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
           (socks5_addr.to_owned() + "\0").as_ptr() as *const c_char);
   };
   Ok(())
+}
+
+
+struct TcpMuxHandle;
+
+impl TcpMuxHandle {
+  fn new(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<TcpMuxHandle> {
+    tcpmux_client::start(host_list, buff_size, channel_capacity)?;
+    Ok(TcpMuxHandle)
+  }
+
+  async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
+    let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
+
+    let channel = match opt {
+      Some(channel) => channel,
+      None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
+    };
+
+    channel.exec_local_inbound_handler(stream, address).await
+  }
+}
+
+struct TcpHandle {
+  tcp_proxy: TcpProxy
+}
+
+impl TcpHandle {
+  async fn new(remote_hosts: &Array, buff_size: usize) -> Result<TcpHandle> {
+    let mut hosts = Vec::with_capacity(remote_hosts.len());
+
+    for v in remote_hosts {
+      let host = v["host"].as_str().option_to_res(CONFIG_ERROR)?;
+      let addr = tokio::net::lookup_host(host).await?.next().option_to_res("Target address error")?;
+
+      let key = v["key"].as_str().option_to_res(CONFIG_ERROR)?;
+      let rc4 = Rc4::new(key.as_bytes());
+
+      hosts.push((addr, rc4));
+    };
+    Ok(TcpHandle { tcp_proxy: TcpProxy::new(hosts, buff_size) })
+  }
+
+  async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
+    self.tcp_proxy.connect(stream, address).await
+  }
 }
