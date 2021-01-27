@@ -4,7 +4,6 @@ use crypto::rc4::Rc4;
 use tokio::io::{AsyncReadExt, Result};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::commons::MODE::Decrypt;
 use crate::commons::StdResAutoConvert;
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 use crate::commons::tcpmux_comm::TcpSocketExt;
@@ -33,7 +32,7 @@ async fn tunnel(mut stream: TcpStream, mut rc4: Rc4, buff_size: usize) -> Result
   stream.read_exact(&mut in_).await?;
   let mut out = vec![0u8; len];
 
-  crate::commons::crypto(&in_, &mut out, &mut rc4, Decrypt)?;
+  crate::commons::crypto(&in_, &mut out, &mut rc4)?;
   let addr = String::from_utf8((&out[..len - 2]).to_owned()).res_auto_convert()?;
   let mut port = [0u8; 2];
   port.copy_from_slice(&out[len - 2..]);

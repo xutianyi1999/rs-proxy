@@ -6,9 +6,8 @@ use tokio::io::Error;
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Duration;
 
-use crate::commons::{Address, MODE};
+use crate::commons::Address;
 use crate::commons::crypto;
-use crate::commons::tcpmux_comm::MODE::Decrypt;
 
 const CONNECT: u8 = 0x00;
 const DISCONNECT: u8 = 0x01;
@@ -53,7 +52,7 @@ impl<R> MsgReader<R>
       None => return Ok(None)
     };
 
-    let data = crypto(data, &mut self.out, &mut self.rc4, Decrypt)?;
+    let data = crypto(data, &mut self.out, &mut self.rc4)?;
     let msg = decode(data)?;
     Ok(Some(msg))
   }
@@ -114,7 +113,7 @@ impl<W> MsgWriter<W>
   }
 
   pub async fn write_msg(&mut self, msg: &[u8]) -> Result<()> {
-    let slice = crypto(&msg, &mut self.buff, &mut self.rc4, MODE::Encrypt)?;
+    let slice = crypto(&msg, &mut self.buff, &mut self.rc4)?;
     let msg_len = slice.len();
 
     let out = &mut self.out;

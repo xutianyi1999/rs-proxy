@@ -7,7 +7,6 @@ use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 
 use crate::commons::Address;
-use crate::commons::MODE::Encrypt;
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 
 pub struct TcpProxy {
@@ -41,7 +40,7 @@ impl TcpProxy {
     buff.put_u16(proxy_addr.1);
 
     let mut out = vec![0u8; buff.len()];
-    crate::commons::crypto(&buff, &mut out, &mut rc4, Encrypt)?;
+    crate::commons::crypto(&buff, &mut out, &mut rc4)?;
 
     server_stream.write_u16(out.len() as u16).await?;
     server_stream.write_all(&out).await?;
