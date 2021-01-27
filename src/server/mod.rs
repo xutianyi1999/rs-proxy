@@ -17,12 +17,12 @@ pub async fn start(config: &Yaml) -> Result<()> {
   let key = config["key"].as_str().option_to_res(CONFIG_ERROR)?;
 
   match protocol {
-    "tcp" => {
+    "tcpmux" => {
       let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
       let channel_capacity = config["channelCapacity"].as_i64().option_to_res(CONFIG_ERROR)?;
       tcpmux_server::start(host, key, buff_size as usize, channel_capacity as usize).await
     }
-    "tcpmux" => {
+    "tcp" => {
       let buff_size = config["buffSize"].as_i64().option_to_res(CONFIG_ERROR)?;
       tcp_server::start(SocketAddr::from_str(host).res_auto_convert()?, Rc4::new(key.as_bytes()), buff_size as usize).await
     }

@@ -137,7 +137,6 @@ impl TcpMuxChannel {
 
   /// 本地连接处理器
   pub async fn exec_local_inbound_handler(&self, mut socket: TcpStream, addr: Address) -> Result<()> {
-    // 10MB
     let (mut child_rx, child_tx) = tokio::io::duplex(self.buff_size);
     let p2p_channel = self.register(addr, child_tx).await?;
     let (mut tcp_rx, mut tcp_tx) = socket.split();

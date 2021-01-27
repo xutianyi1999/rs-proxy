@@ -42,6 +42,8 @@ impl TcpProxy {
 
     let mut out = vec![0u8; buff.len()];
     crate::commons::crypto(&buff, &mut out, &mut rc4, Encrypt)?;
+
+    server_stream.write_u16(out.len() as u16).await?;
     server_stream.write_all(&out).await?;
 
     if buff_size == 0 {
