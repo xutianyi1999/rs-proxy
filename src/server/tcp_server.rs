@@ -4,9 +4,8 @@ use crypto::rc4::Rc4;
 use tokio::io::{AsyncReadExt, Result};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::commons::StdResAutoConvert;
+use crate::commons::{StdResAutoConvert, TcpSocketExt};
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
-use crate::commons::tcpmux_comm::TcpSocketExt;
 
 pub async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(listen_addr).await?;

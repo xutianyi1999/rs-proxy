@@ -99,7 +99,12 @@ async fn socks5_decode(socket: &mut TcpStream) -> Result<Address> {
 }
 
 fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
-  let lib = libloading::Library::new("./httptosocks").res_auto_convert()?;
+  #[cfg(target_os = "windows")]
+    let lib_name = "httptosocks.dll";
+  #[cfg(target_os = "linux")]
+    let lib_name = "libhttptosocks.so";
+
+  let lib = libloading::Library::new(lib_name).res_auto_convert()?;
 
   unsafe {
     let start: libloading::Symbol<unsafe extern fn(*const c_char, *const c_char) -> ()> = lib.get(b"start").res_auto_convert()?;

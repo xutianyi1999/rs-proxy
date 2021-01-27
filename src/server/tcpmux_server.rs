@@ -8,8 +8,8 @@ use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::Sender;
 
-use crate::commons::{Address, OptionConvert, StdResAutoConvert};
-use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
+use crate::commons::{Address, OptionConvert, StdResAutoConvert, TcpSocketExt};
+use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 
 type DB = Arc<Mutex<HashMap<ChannelId, DuplexStream>>>;
 

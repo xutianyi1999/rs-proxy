@@ -11,8 +11,8 @@ use tokio::sync::mpsc::Sender;
 use yaml_rust::yaml::Array;
 
 use crate::client::CONNECTION_POOL;
-use crate::commons::{Address, OptionConvert, StdResAutoConvert};
-use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter, TcpSocketExt};
+use crate::commons::{Address, OptionConvert, StdResAutoConvert, TcpSocketExt};
+use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 use crate::CONFIG_ERROR;
 
 pub fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<()> {
