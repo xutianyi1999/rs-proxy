@@ -23,10 +23,10 @@ pub async fn proxy_tunnel_buf(mut source_stream: TcpStream, mut dest_stream: Tcp
   let (mut c2rx, c2tx) = tokio::io::split(c2);
 
   let f1 = tunnel(source_rx, c1tx, rc4);
-  let f2 = tokio::io::copy(&mut c1rx, &mut dest_tx);
+  let f2 = tokio::io::copy(&mut c2rx, &mut dest_tx);
 
   let f3 = tunnel(dest_rx, c2tx, rc4);
-  let f4 = tokio::io::copy(&mut c2rx, &mut source_tx);
+  let f4 = tokio::io::copy(&mut c1rx, &mut source_tx);
 
   tokio::select! {
     res = f1 => res,

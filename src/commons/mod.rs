@@ -60,6 +60,6 @@ pub fn crypto<'a>(input: &'a [u8], output: &'a mut [u8], rc4: &'a mut Rc4) -> Re
   let mut ref_write_buf = RefWriteBuffer::new(output);
 
   rc4.encrypt(&mut ref_read_buf, &mut ref_write_buf, false)
-    .res_convert(|_| "Encrypt error".to_string())?;
+    .res_convert(|_| "Crypto error".to_string())?;
   Ok(&mut output[..input.len()])
 }

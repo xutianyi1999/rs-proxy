@@ -15,7 +15,7 @@ remote:
   # 名称
   - name: local
     # 连接数
-    connections: 1
+    connections: 3
     # 地址
     host: 127.0.0.1:12345
     # 密钥
