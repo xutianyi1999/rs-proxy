@@ -11,6 +11,7 @@ use crate::commons::tcpmux_comm::TcpSocketExt;
 
 pub async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(listen_addr).await?;
+  info!("Listening on {}", listener.local_addr()?);
 
   while let Ok((stream, _)) = listener.accept().await {
     tokio::spawn(async move {
