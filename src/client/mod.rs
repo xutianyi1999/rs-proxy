@@ -102,7 +102,7 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
   #[cfg(target_os = "windows")]
     let lib_name = "httptosocks.dll";
   #[cfg(target_os = "linux")]
-    let lib_name = "libhttptosocks.so";
+    let lib_name = "./libhttptosocks.so";
 
   let lib = libloading::Library::new(lib_name).res_auto_convert()?;
 
