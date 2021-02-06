@@ -1,17 +1,14 @@
 use std::net::SocketAddr;
 use std::os::raw::c_char;
 use std::str::FromStr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crypto::rc4::Rc4;
-use once_cell::sync::Lazy;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpListener, TcpStream};
 use yaml_rust::Yaml;
-use yaml_rust::yaml::Array;
 
-use crate::client::tcp_client::TcpProxy;
-use crate::client::tcpmux_client::ConnectionPool;
+use crate::client::tcp_client::TcpHandle;
+use crate::client::tcpmux_client::TcpMuxHandle;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert};
 use crate::CONFIG_ERROR;
 
@@ -23,8 +20,6 @@ enum Protocol {
   Tcp(TcpHandle),
   TcpMux(TcpMuxHandle),
 }
-
-static CONNECTION_POOL: Lazy<Mutex<ConnectionPool>> = Lazy::new(|| Mutex::new(ConnectionPool::new()));
 
 pub async fn start(config: &Yaml) -> Result<()> {
   let socks5_listen = config["socks5Listen"].as_str().option_to_res(CONFIG_ERROR)?;
@@ -113,50 +108,4 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
           (socks5_addr.to_owned() + "\0").as_ptr() as *const c_char);
   };
   Ok(())
-}
-
-
-struct TcpMuxHandle;
-
-impl TcpMuxHandle {
-  fn new(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<TcpMuxHandle> {
-    tcpmux_client::start(host_list, buff_size, channel_capacity)?;
-    Ok(TcpMuxHandle)
-  }
-
-  async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
-    let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
-
-    let channel = match opt {
-      Some(channel) => channel,
-      None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
-    };
-
-    channel.exec_local_inbound_handler(stream, address).await
-  }
-}
-
-struct TcpHandle {
-  tcp_proxy: TcpProxy
-}
-
-impl TcpHandle {
-  async fn new(remote_hosts: &Array, buff_size: usize) -> Result<TcpHandle> {
-    let mut hosts = Vec::with_capacity(remote_hosts.len());
-
-    for v in remote_hosts {
-      let host = v["host"].as_str().option_to_res(CONFIG_ERROR)?;
-      let addr = tokio::net::lookup_host(host).await?.next().option_to_res("Target address error")?;
-
-      let key = v["key"].as_str().option_to_res(CONFIG_ERROR)?;
-      let rc4 = Rc4::new(key.as_bytes());
-
-      hosts.push((addr, rc4));
-    };
-    Ok(TcpHandle { tcp_proxy: TcpProxy::new(hosts, buff_size) })
-  }
-
-  async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
-    self.tcp_proxy.connect(stream, address).await
-  }
 }

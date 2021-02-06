@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crypto::rc4::Rc4;
+use once_cell::sync::Lazy;
 use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
@@ -10,12 +11,13 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::yaml::Array;
 
-use crate::client::CONNECTION_POOL;
 use crate::commons::{Address, OptionConvert, StdResAutoConvert, TcpSocketExt};
 use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 use crate::CONFIG_ERROR;
 
-pub fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<()> {
+static CONNECTION_POOL: Lazy<std::sync::Mutex<ConnectionPool>> = Lazy::new(|| std::sync::Mutex::new(ConnectionPool::new()));
+
+fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<()> {
   for host in host_list {
     let server_name = host["name"].as_str().option_to_res(CONFIG_ERROR)?;
     let count = host["connections"].as_i64().option_to_res(CONFIG_ERROR)?;
@@ -254,5 +256,25 @@ impl ConnectionPool {
     };
     let key = self.keys.get(self.count)?;
     self.db.get(key).cloned()
+  }
+}
+
+pub struct TcpMuxHandle;
+
+impl TcpMuxHandle {
+  pub fn new(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<TcpMuxHandle> {
+    start(host_list, buff_size, channel_capacity)?;
+    Ok(TcpMuxHandle)
+  }
+
+  pub async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
+    let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
+
+    let channel = match opt {
+      Some(channel) => channel,
+      None => return Err(Error::new(ErrorKind::Other, "Get connection error"))
+    };
+
+    channel.exec_local_inbound_handler(stream, address).await
   }
 }
