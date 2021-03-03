@@ -99,9 +99,9 @@ fn start_http_proxy_server(bind_addr: &str, socks5_addr: &str) -> Result<()> {
   #[cfg(target_os = "linux")]
     let lib_name = "./libhttptosocks.so";
 
-  let lib = libloading::Library::new(lib_name).res_auto_convert()?;
-
   unsafe {
+    let lib = libloading::Library::new(lib_name).res_auto_convert()?;
+
     let start: libloading::Symbol<unsafe extern fn(*const c_char, *const c_char) -> ()> = lib.get(b"start").res_auto_convert()?;
 
     start((bind_addr.to_owned() + "\0").as_ptr() as *const c_char,
