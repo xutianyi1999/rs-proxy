@@ -1,19 +1,23 @@
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 
 use crypto::rc4::Rc4;
 use tokio::io::{AsyncReadExt, Result};
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::commons::{StdResAutoConvert, TcpSocketExt};
+use crate::commons::{MAGIC_CODE, StdResAutoConvert, TcpSocketExt};
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 
 pub async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Result<()> {
   let listener = TcpListener::bind(listen_addr).await?;
   info!("Listening on {}", listener.local_addr()?);
 
+  let mut magic_code_out = [0u8; 4];
+  crate::commons::crypto(&MAGIC_CODE.to_be_bytes(), &mut magic_code_out, &mut (rc4.clone()))?;
+
   while let Ok((stream, _)) = listener.accept().await {
     tokio::spawn(async move {
-      if let Err(e) = tunnel(stream, rc4, buff_size).await {
+      if let Err(e) = tunnel(stream, rc4, buff_size, magic_code_out).await {
         error!("{}", e);
       }
     });
@@ -21,7 +25,14 @@ pub async fn start(listen_addr: SocketAddr, rc4: Rc4, buff_size: usize) -> Resul
   Ok(())
 }
 
-async fn tunnel(mut stream: TcpStream, mut rc4: Rc4, buff_size: usize) -> Result<()> {
+async fn tunnel(mut stream: TcpStream, mut rc4: Rc4, buff_size: usize, magic_code: [u8; 4]) -> Result<()> {
+  let mut confirm_code = [0u8; 4];
+  stream.read_exact(&mut confirm_code).await?;
+
+  if confirm_code != magic_code {
+    return Err(Error::new(ErrorKind::Other, "Message error"));
+  }
+
   stream.set_keepalive()?;
 
   let len = stream.read_u16().await?;

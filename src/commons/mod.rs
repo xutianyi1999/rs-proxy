@@ -11,6 +11,8 @@ pub mod tcp_comm;
 
 pub type Address = (Vec<u8>, u16);
 
+pub const MAGIC_CODE: u32 = 0xA5C878F0;
+
 pub trait OptionConvert<T> {
   fn option_to_res(self, msg: &str) -> Result<T>;
 }

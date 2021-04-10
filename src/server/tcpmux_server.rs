@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::{Error, ErrorKind};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -8,7 +9,7 @@ use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::Sender;
 
-use crate::commons::{Address, OptionConvert, StdResAutoConvert, TcpSocketExt};
+use crate::commons::{Address, MAGIC_CODE, OptionConvert, StdResAutoConvert, TcpSocketExt};
 use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 
 type DB = Arc<Mutex<HashMap<ChannelId, DuplexStream>>>;
@@ -19,12 +20,15 @@ pub async fn start(host: &str, key: &str, buff_size: usize, channel_capacity: us
 
   let rc4 = Rc4::new(key.as_bytes());
 
+  let mut magic_code = [0u8; 4];
+  crate::commons::crypto(&MAGIC_CODE.to_be_bytes(), &mut magic_code, &mut (rc4.clone()))?;
+
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
       info!("{:?} connected", addr);
       let db: DB = Arc::new(Mutex::new(HashMap::new()));
 
-      if let Err(e) = process(socket, &db, rc4, buff_size, channel_capacity).await {
+      if let Err(e) = process(socket, &db, rc4, buff_size, channel_capacity, magic_code).await {
         error!("{}", e);
       };
 
@@ -34,8 +38,16 @@ pub async fn start(host: &str, key: &str, buff_size: usize, channel_capacity: us
   Ok(())
 }
 
-async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
+async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, channel_capacity: usize, magic_code: [u8; 4]) -> Result<()> {
+  let mut confirm_code = [0u8; 4];
+  socket.read_exact(&mut confirm_code).await?;
+
+  if confirm_code != magic_code {
+    return Err(Error::new(ErrorKind::Other, "Message error"));
+  }
+
   socket.set_keepalive()?;
+
   let (tcp_rx, tcp_tx) = socket.split();
   let tcp_rx = BufReader::new(tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);

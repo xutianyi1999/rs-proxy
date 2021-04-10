@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::yaml::Array;
 
-use crate::commons::{Address, OptionConvert, StdResAutoConvert, TcpSocketExt};
+use crate::commons::{Address, MAGIC_CODE, OptionConvert, StdResAutoConvert, TcpSocketExt};
 use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 use crate::CONFIG_ERROR;
 
@@ -46,6 +46,9 @@ fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result
 async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
   let channel_id: u32 = random();
 
+  let mut magic_code = [0u8; 4];
+  crate::commons::crypto(&MAGIC_CODE.to_be_bytes(), &mut magic_code, &mut (rc4.clone()))?;
+
   loop {
     let mut socket = match TcpStream::connect(host).await {
       Ok(socket) => socket,
@@ -55,6 +58,7 @@ async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize, chan
       }
     };
 
+    socket.write_all(&magic_code).await?;
     socket.set_keepalive()?;
 
     let (tcp_rx, tcp_tx) = socket.split();

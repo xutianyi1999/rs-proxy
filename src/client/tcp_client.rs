@@ -7,7 +7,7 @@ use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
 use yaml_rust::yaml::Array;
 
-use crate::commons::{Address, OptionConvert};
+use crate::commons::{Address, MAGIC_CODE, OptionConvert};
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 use crate::CONFIG_ERROR;
 
@@ -34,6 +34,10 @@ impl TcpProxy {
     let mut server_stream = TcpStream::connect((*tuple).0).await?;
     let mut rc4 = (*tuple).1;
     let buff_size = self.buff_size;
+
+    let mut magic_code_out = [0u8; 4];
+    crate::commons::crypto(&MAGIC_CODE.to_be_bytes(), &mut magic_code_out, &mut (rc4.clone()))?;
+    server_stream.write_all(&magic_code_out).await?;
 
     let mut buff: Vec<u8> = Vec::with_capacity(proxy_addr.0.len() + 2);
     buff.put_slice(&proxy_addr.0);
