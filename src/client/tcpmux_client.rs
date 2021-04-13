@@ -15,7 +15,7 @@ use crate::commons::{Address, MAGIC_CODE, OptionConvert, StdResAutoConvert, TcpS
 use crate::commons::tcpmux_comm::{ChannelId, Msg, MsgReader, MsgWriter};
 use crate::CONFIG_ERROR;
 
-static CONNECTION_POOL: Lazy<std::sync::Mutex<ConnectionPool>> = Lazy::new(|| std::sync::Mutex::new(ConnectionPool::new()));
+static CONNECTION_POOL: Lazy<parking_lot::Mutex<ConnectionPool>> = Lazy::new(|| parking_lot::Mutex::new(ConnectionPool::new()));
 
 fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result<()> {
   for host in host_list {
@@ -80,21 +80,20 @@ async fn connect(host: &str, server_name: &str, rc4: Rc4, buff_size: usize, chan
 
     let f2 = cmc.exec_remote_inbound_handler(tcp_rx, rc4);
 
-    CONNECTION_POOL.lock().res_auto_convert()?
-      .put(channel_id, cmc.clone());
+    CONNECTION_POOL.lock().put(channel_id, cmc.clone());
 
     let res = tokio::select! {
       res = f1 => res,
       res = f2 => res
     };
 
+    let _ = CONNECTION_POOL.lock().remove(&channel_id);
     cmc.close().await;
 
     if let Err(e) = res {
       error!("{}", e);
     }
 
-    let _ = CONNECTION_POOL.lock().res_auto_convert()?.remove(&channel_id);
     error!("{} disconnected", server_name);
   }
 }
@@ -272,7 +271,7 @@ impl TcpMuxHandle {
   }
 
   pub async fn proxy(&self, stream: TcpStream, address: Address) -> Result<()> {
-    let opt = CONNECTION_POOL.lock().res_auto_convert()?.get();
+    let opt = CONNECTION_POOL.lock().get();
 
     let channel = match opt {
       Some(channel) => channel,
