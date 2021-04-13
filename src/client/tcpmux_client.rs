@@ -236,7 +236,7 @@ impl ConnectionPool {
 
   pub fn remove(&mut self, key: &u32) -> Result<()> {
     if let Some(i) = self.keys.iter().position(|k| k.eq(key)) {
-      self.keys.remove(i);
+      self.keys.swap_remove(i);
       self.db.remove(key);
     }
     Ok(())
