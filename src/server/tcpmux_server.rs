@@ -26,19 +26,22 @@ pub async fn start(host: &str, key: &str, buff_size: usize, channel_capacity: us
   while let Ok((socket, addr)) = listener.accept().await {
     tokio::spawn(async move {
       info!("{:?} connected", addr);
-      let db: DB = Arc::new(Mutex::new(HashMap::new()));
 
-      if let Err(e) = process(socket, &db, rc4, buff_size, channel_capacity, magic_code).await {
+      if let Err(e) = process(socket, rc4, buff_size, channel_capacity, magic_code).await {
         error!("{}", e);
       };
-
-      db.lock().await.clear();
     });
   };
   Ok(())
 }
 
-async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, channel_capacity: usize, magic_code: [u8; 4]) -> Result<()> {
+async fn process(
+  mut socket: TcpStream,
+  rc4: Rc4,
+  buff_size: usize,
+  channel_capacity: usize,
+  magic_code: [u8; 4],
+) -> Result<()> {
   let mut confirm_code = [0u8; 4];
   socket.read_exact(&mut confirm_code).await?;
 
@@ -51,6 +54,9 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, cha
   let (tcp_rx, tcp_tx) = socket.split();
   let tcp_rx = BufReader::new(tcp_rx);
   let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
+
+  let outer_db: DB = Arc::new(Mutex::new(HashMap::new()));
+  let db = &outer_db;
 
   let f1 = async move {
     let mut msg_writer = MsgWriter::new(tcp_tx, rc4);
@@ -78,9 +84,11 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, cha
               error!("{}", e);
             }
 
-            if db.lock().await.remove(&channel_id).is_some() {
-              if let Err(e) = mpsc_tx.send(Msg::Disconnect(channel_id).encode()).await {
-                error!("{}", e);
+            if !mpsc_tx.is_closed() {
+              if db.lock().await.remove(&channel_id).is_some() {
+                if let Err(e) = mpsc_tx.send(Msg::Disconnect(channel_id).encode()).await {
+                  error!("{}", e);
+                }
               }
             }
           });
@@ -100,10 +108,13 @@ async fn process(mut socket: TcpStream, db: &DB, rc4: Rc4, buff_size: usize, cha
     Ok(())
   };
 
-  tokio::select! {
+  let res = tokio::select! {
     res = f1 => res,
     res = f2 => res
-  }
+  };
+
+  outer_db.lock().await.clear();
+  res
 }
 
 async fn child_channel_process(channel_id: ChannelId, addr: Address,
