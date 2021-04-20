@@ -7,7 +7,7 @@ use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::yaml::Array;
 
@@ -103,6 +103,7 @@ pub struct TcpMuxChannel {
   tx: Sender<Vec<u8>>,
   db: DB,
   buff_size: usize,
+  is_closed: RwLock<bool>,
 }
 
 impl TcpMuxChannel {
@@ -111,10 +112,13 @@ impl TcpMuxChannel {
       tx,
       db: Mutex::new(HashMap::new()),
       buff_size,
+      is_closed: RwLock::new(false),
     }
   }
 
   pub async fn close(&self) {
+    let mut guard = self.is_closed.write().await;
+    *guard = true;
     self.db.lock().await.clear();
   }
 
@@ -179,6 +183,12 @@ impl TcpMuxChannel {
     self.tx.send(Msg::Connect(channel_id, addr).encode()).await
       .res_auto_convert()?;
 
+    let guard = self.is_closed.read().await;
+
+    if *guard {
+      return Err(Error::new(ErrorKind::Other, "Register error"));
+    }
+
     self.db.lock().await.insert(channel_id, child_tx);
 
     let p2p_channel = P2pChannel {
@@ -189,8 +199,10 @@ impl TcpMuxChannel {
   }
 
   async fn remove(&self, channel_id: u32) -> Result<()> {
-    if self.db.lock().await.remove(&channel_id).is_some() {
-      self.tx.send(Msg::Disconnect(channel_id).encode()).await.res_auto_convert()?;
+    if !self.tx.is_closed() {
+      if self.db.lock().await.remove(&channel_id).is_some() {
+        self.tx.send(Msg::Disconnect(channel_id).encode()).await.res_auto_convert()?;
+      }
     }
     Ok(())
   }
