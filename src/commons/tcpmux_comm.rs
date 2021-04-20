@@ -68,7 +68,7 @@ async fn read_msg<'a, A>(rx: &mut A, buff: &'a mut [u8]) -> Result<Option<&'a [u
   Ok(Some(msg))
 }
 
-fn decode(data: &mut [u8]) -> Result<Msg> {
+fn decode(data: &[u8]) -> Result<Msg> {
   let len = data.len();
   let mode = data[0];
 

@@ -7,7 +7,7 @@ use rand::random;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream, Error, ErrorKind, Result};
 use tokio::net::tcp::ReadHalf;
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex};
 use tokio::sync::mpsc::Sender;
 use yaml_rust::yaml::Array;
 
@@ -30,7 +30,7 @@ fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result
       let addr = addr.to_string();
 
       tokio::spawn(async move {
-        if let Err(e) = connect(&addr, channel_name.clone(), rc4, buff_size, channel_capacity).await {
+        if let Err(e) = connect(&addr, &channel_name, rc4, buff_size, channel_capacity).await {
           error!("{}", e);
         }
         error!("{} crashed", channel_name);
@@ -41,7 +41,7 @@ fn start(host_list: &Array, buff_size: usize, channel_capacity: usize) -> Result
 }
 
 /// 连接远程主机
-async fn connect(host: &str, channel_name: String, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
+async fn connect(host: &str, channel_name: &str, rc4: Rc4, buff_size: usize, channel_capacity: usize) -> Result<()> {
   let channel_id: u32 = random();
 
   let mut magic_code = [0u8; 4];
@@ -63,7 +63,7 @@ async fn connect(host: &str, channel_name: String, rc4: Rc4, buff_size: usize, c
     info!("{} connected", channel_name);
 
     let (mpsc_tx, mut mpsc_rx) = mpsc::channel::<Vec<u8>>(channel_capacity);
-    let cmc = TcpMuxChannel::new(mpsc_tx, buff_size, channel_name.clone());
+    let cmc = TcpMuxChannel::new(mpsc_tx, buff_size);
     let cmc = Arc::new(cmc);
 
     // 读取本地管道数据，发送到远端
@@ -100,27 +100,21 @@ async fn connect(host: &str, channel_name: String, rc4: Rc4, buff_size: usize, c
 pub type DB = Mutex<HashMap<ChannelId, DuplexStream>>;
 
 pub struct TcpMuxChannel {
-  channel_name: String,
   tx: Sender<Vec<u8>>,
   db: DB,
-  is_close: RwLock<bool>,
   buff_size: usize,
 }
 
 impl TcpMuxChannel {
-  pub fn new(tx: Sender<Vec<u8>>, buff_size: usize, channel_name: String) -> TcpMuxChannel {
+  pub fn new(tx: Sender<Vec<u8>>, buff_size: usize) -> TcpMuxChannel {
     TcpMuxChannel {
-      channel_name,
       tx,
       db: Mutex::new(HashMap::new()),
-      is_close: RwLock::new(false),
       buff_size,
     }
   }
 
   pub async fn close(&self) {
-    let mut flag_lock_guard = self.is_close.write().await;
-    *flag_lock_guard = true;
     self.db.lock().await.clear();
   }
 
@@ -180,12 +174,6 @@ impl TcpMuxChannel {
   }
 
   async fn register(&self, addr: Address, child_tx: DuplexStream) -> Result<P2pChannel<'_>> {
-    let is_close_lock_guard = self.is_close.read().await;
-    if *is_close_lock_guard == true {
-      let msg = format!("{} is closed", self.channel_name);
-      return Err(Error::new(ErrorKind::Other, msg));
-    }
-
     let channel_id: ChannelId = rand::random();
 
     self.tx.send(Msg::Connect(channel_id, addr).encode()).await
