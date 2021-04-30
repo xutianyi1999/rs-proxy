@@ -48,16 +48,20 @@ async fn connect(host: &str, channel_name: &str, rc4: Rc4, buff_size: usize, cha
   crate::commons::crypto(&MAGIC_CODE.to_be_bytes(), &mut magic_code, &mut (rc4.clone()))?;
 
   loop {
-    let mut socket = match TcpStream::connect(host).await {
+    let res = async move {
+      let mut socket = TcpStream::connect(host).await?;
+      socket.write_all(&magic_code).await?;
+      socket.set_keepalive()?;
+      Result::Ok(socket)
+    };
+
+    let mut socket = match res.await {
       Ok(socket) => socket,
       Err(e) => {
         error!("{}", e);
         continue;
       }
     };
-
-    socket.write_all(&magic_code).await?;
-    socket.set_keepalive()?;
 
     let (tcp_rx, tcp_tx) = socket.split();
     info!("{} connected", channel_name);

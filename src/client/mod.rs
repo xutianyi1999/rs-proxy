@@ -70,7 +70,7 @@ async fn socks5_server_bind(host: SocketAddr, proto: Protocol) -> Result<()> {
     let inner_proto = proto.clone();
 
     tokio::spawn(async move {
-      let f = || async move {
+      let res = async move {
         let addr = socks5_decode(&mut socket).await?;
 
         match &*inner_proto {
@@ -79,7 +79,7 @@ async fn socks5_server_bind(host: SocketAddr, proto: Protocol) -> Result<()> {
         }
       };
 
-      if let Err(e) = f().await {
+      if let Err(e) = res.await {
         error!("{}", e)
       }
     });
