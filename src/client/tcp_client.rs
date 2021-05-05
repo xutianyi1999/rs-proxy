@@ -1,13 +1,18 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use bytes::BufMut;
-use crypto::rc4::Rc4;
 use rand::Rng;
 use tokio::io::{AsyncWriteExt, Error, ErrorKind, Result};
 use tokio::net::TcpStream;
+use tokio_rustls::rustls::ClientConfig;
+use tokio_rustls::TlsConnector;
+use tokio_rustls::webpki::DNSNameRef;
 use yaml_rust::yaml::Array;
 
-use crate::commons::{Address, MAGIC_CODE, OptionConvert};
+use crypto::rc4::Rc4;
+
+use crate::commons::{Address, load_certs, MAGIC_CODE, OptionConvert};
 use crate::commons::tcp_comm::{proxy_tunnel, proxy_tunnel_buf};
 use crate::CONFIG_ERROR;
 
@@ -22,6 +27,7 @@ impl TcpProxy {
   }
 
   pub async fn connect(&self, source_stream: TcpStream, proxy_addr: Address) -> Result<()> {
+    let connector = TlsConnector::from();
     let server_list = &self.server_list;
 
     let tuple = if server_list.len() == 1 {
@@ -73,9 +79,10 @@ impl TcpHandle {
       let host = v["host"].as_str().option_to_res(CONFIG_ERROR)?;
       let addr = tokio::net::lookup_host(host).await?.next().option_to_res("Target address error")?;
 
-      let key = v["key"].as_str().option_to_res(CONFIG_ERROR)?;
-      let rc4 = Rc4::new(key.as_bytes());
-
+      let mut certs = load_certs(v["certPath"].as_str().option_to_res(CONFIG_ERROR)?)?;
+      let mut tls_config = ClientConfig::new();
+      tls_config.root_store.add(&certs.remove(0));
+      let tls_connector = TlsConnector::from(Arc::new(tls_config));
       hosts.push((addr, rc4));
     };
     Ok(TcpHandle { tcp_proxy: TcpProxy::new(hosts, buff_size) })

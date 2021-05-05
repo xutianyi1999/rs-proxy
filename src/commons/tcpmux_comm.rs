@@ -1,7 +1,8 @@
 use bytes::BufMut;
-use crypto::rc4::Rc4;
 use tokio::io::{AsyncBufRead, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ErrorKind, Result};
 use tokio::io::Error;
+
+use crypto::rc4::Rc4;
 
 use crate::commons::Address;
 use crate::commons::crypto;
@@ -28,17 +29,15 @@ pub struct MsgReader<R>
   where R: AsyncBufRead
 {
   reader: R,
-  rc4: Rc4,
-  out: Vec<u8>,
   buff: Vec<u8>,
 }
 
 impl<R> MsgReader<R>
   where R: AsyncBufRead + Unpin
 {
-  pub fn new(reader: R, rc4: Rc4) -> MsgReader<R> {
+  pub fn new(reader: R) -> MsgReader<R> {
     let size = 65535;
-    MsgReader { reader, rc4, out: vec![0u8; size], buff: vec![0u8; size] }
+    MsgReader { reader, buff: vec![0u8; size] }
   }
 
   pub async fn read_msg(&mut self) -> Result<Option<Msg<'_>>> {
@@ -49,7 +48,6 @@ impl<R> MsgReader<R>
       None => return Ok(None)
     };
 
-    let data = crypto(data, &mut self.out, &mut self.rc4)?;
     let msg = decode(data)?;
     Ok(Some(msg))
   }
@@ -97,28 +95,25 @@ pub struct MsgWriter<W>
   where W: AsyncWrite
 {
   writer: W,
-  rc4: Rc4,
-  out: Vec<u8>,
   buff: Vec<u8>,
 }
 
 impl<W> MsgWriter<W>
   where W: AsyncWrite + Unpin
 {
-  pub fn new(writer: W, rc4: Rc4) -> MsgWriter<W> {
-    MsgWriter { writer, rc4, out: vec![0u8; 65537], buff: vec![0u8; 65535] }
+  pub fn new(writer: W) -> MsgWriter<W> {
+    MsgWriter { writer, buff: vec![0u8; 65537] }
   }
 
   pub async fn write_msg(&mut self, msg: &[u8]) -> Result<()> {
-    let slice = crypto(&msg, &mut self.buff, &mut self.rc4)?;
-    let msg_len = slice.len();
+    let msg_len = msg.len();
 
-    let out = &mut self.out;
+    let buff = &mut self.buff;
     let len = (msg_len as u16).to_be_bytes();
-    out[..2].copy_from_slice(&len);
-    out[2..(msg_len + 2)].copy_from_slice(slice);
+    buff[..2].copy_from_slice(&len);
+    buff[2..(msg_len + 2)].copy_from_slice(slice);
 
-    self.writer.write_all(&out[..(msg_len + 2)]).await
+    self.writer.write_all(&buff[..(msg_len + 2)]).await
   }
 }
 

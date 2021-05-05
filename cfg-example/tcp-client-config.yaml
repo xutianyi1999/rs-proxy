@@ -12,5 +12,7 @@ buffSize: 2048
 remote:
     # 地址
   - host: 127.0.0.1:12345
-    # 密钥
-    key: "123a"
+    # 证书路径
+    certPath: ""
+    # server name
+    serverName: "proxy"

@@ -1,17 +1,20 @@
-use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
-use crypto::rc4::Rc4;
-use crypto::symmetriccipher::Encryptor;
+use std::fs::File;
+use std::io::BufReader;
+
 use socket2::Socket;
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Duration;
+use tokio_rustls::rustls::{Certificate, PrivateKey, ServerConfig};
+use tokio_rustls::rustls::internal::pemfile::{certs, rsa_private_keys};
+
+use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
+use crypto::rc4::Rc4;
+use crypto::symmetriccipher::Encryptor;
 
 pub mod tcpmux_comm;
-pub mod tcp_comm;
 
 pub type Address = (Vec<u8>, u16);
-
-pub const MAGIC_CODE: u32 = 0xA5C878F0;
 
 pub trait OptionConvert<T> {
   fn option_to_res(self, msg: &str) -> Result<T>;
@@ -109,4 +112,16 @@ fn set_keepalive<S: std::os::unix::io::AsRawFd>(socket: &S) -> tokio::io::Result
     std::mem::forget(socket);
   };
   Ok(())
+}
+
+pub fn load_certs(path: &str) -> Result<Vec<Certificate>> {
+  certs(&mut BufReader::new(File::open(path)?))
+    .res_convert(|_| "Invalid cert".to_string())
+}
+
+pub fn load_priv_key(path: &str) -> Result<PrivateKey> {
+  let mut vec = rsa_private_keys(&mut BufReader::new(File::open(path)?))
+    .res_convert(|_| "Invalid key".to_string())?;
+
+  Ok(vec.remove(0))
 }
