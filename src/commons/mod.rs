@@ -1,7 +1,7 @@
 use crypto::buffer::{RefReadBuffer, RefWriteBuffer};
 use crypto::rc4::Rc4;
 use crypto::symmetriccipher::Encryptor;
-use socket2::Socket;
+use socket2::{Socket, TcpKeepalive};
 use tokio::io::{Error, ErrorKind, Result};
 use tokio::net::{TcpSocket, TcpStream};
 use tokio::time::Duration;
@@ -85,7 +85,7 @@ impl TcpSocketExt for TcpSocket {
   }
 }
 
-const KEEPALIVE_DURATION: Option<Duration> = Option::Some(Duration::from_secs(120));
+const TCP_KEEPALIVE: TcpKeepalive = TcpKeepalive::new().with_time(Duration::from_secs(120));
 
 #[cfg(target_os = "windows")]
 fn set_keepalive<S: std::os::windows::io::AsRawSocket>(socket: &S) -> tokio::io::Result<()> {
@@ -93,7 +93,7 @@ fn set_keepalive<S: std::os::windows::io::AsRawSocket>(socket: &S) -> tokio::io:
 
   unsafe {
     let socket = Socket::from_raw_socket(socket.as_raw_socket());
-    socket.set_keepalive(KEEPALIVE_DURATION)?;
+    socket.set_tcp_keepalive(&TCP_KEEPALIVE)?;
     std::mem::forget(socket);
   };
   Ok(())
@@ -105,7 +105,7 @@ fn set_keepalive<S: std::os::unix::io::AsRawFd>(socket: &S) -> tokio::io::Result
 
   unsafe {
     let socket = Socket::from_raw_fd(socket.as_raw_fd());
-    socket.set_keepalive(KEEPALIVE_DURATION)?;
+    socket.set_tcp_keepalive(&TCP_KEEPALIVE)?;
     std::mem::forget(socket);
   };
   Ok(())
